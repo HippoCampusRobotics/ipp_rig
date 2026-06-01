@@ -23,7 +23,7 @@ def generate_launch_description() -> LaunchDescription:
         description='Set to false during final project event, when scenario is provided by MuM')
     launch_description.add_action(arg)
 
-    package_path = get_package_share_path('final_project')
+    package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
 
     scenario_arg = DeclareLaunchArgument(
@@ -36,7 +36,7 @@ def generate_launch_description() -> LaunchDescription:
         PushROSNamespace(LaunchConfiguration('vehicle_name')),
         Node(
             executable='mapper.py',
-            package='final_project',
+            package='ipp',
             parameters=[
                 LaunchConfiguration('mapping_params',
                                     default=mapping_params_file_path),
@@ -47,7 +47,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         Node(
             executable='path_planner.py',
-            package='final_project',
+            package='ipp',
             parameters=[
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
@@ -56,7 +56,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         Node(
             executable='path_follower.py',
-            package='final_project',
+            package='ipp',
             parameters=[
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
@@ -64,13 +64,13 @@ def generate_launch_description() -> LaunchDescription:
             ],
         ),
         Node(executable='position_controller.py',
-             package='final_project',
+             package='ipp',
              parameters=[{
                  'use_sim_time': LaunchConfiguration('use_sim_time'),
              }]),
         Node(
             executable='yaw_controller.py',
-            package='final_project',
+            package='ipp',
             parameters=[
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
@@ -101,10 +101,10 @@ def generate_launch_description() -> LaunchDescription:
     launch_description.add_action(group)
 
     rviz_file_sim = str(
-        get_package_share_path('final_project') / 'config/rviz.rviz'
+        get_package_share_path('ipp') / 'config/rviz.rviz'
     )
     rviz_file_experiment = str(
-        get_package_share_path('final_project')
+        get_package_share_path('ipp')
         / 'config/rviz_experiment.rviz'
     )
     group = GroupAction(
