@@ -28,20 +28,18 @@ class MapperNode(Node):
 
         self.map_meta_data = self.get_map_meta_data()
 
-        # initialize map cell array
-        # we will keep track of two maps:
-        # 1. map: includes inflated obstacles to account for robot size
-        # 2. map_uninflated: keeps track of original size of obstacles
+        # Two maps are maintained:
+        # 1. map: inflated obstacles that account for the robot size
+        # 2. map_uninflated: obstacles at their original size (for debugging)
 
-        # x: columns, y: rows --> switch order here
+        # x is columns, y is rows, so the array shape is (y, x)
         empty_map = np.zeros((self.num_cells_y, self.num_cells_x), dtype='int8')
         self.map = self.get_tank_walls(empty_map)
         self.map_uninflated = np.copy(self.map)
 
         self.get_logger().info(
-            f'Using a cell resolution of {self.cell_resolution} m per cell, ' +
-            f'resulting in {self.num_cells_x} cells in x-direction and ' +
-            f'{self.num_cells_y} cells in y-direction.')
+            f'Cell resolution: {self.cell_resolution} m/cell, '
+            f'{self.num_cells_x} cells in x, {self.num_cells_y} cells in y.')
 
         self.map_pub = self.create_publisher(msg_type=OccupancyGrid,
                                              topic='occupancy_grid',
@@ -56,6 +54,10 @@ class MapperNode(Node):
                                                      topic='obstacles',
                                                      callback=self.on_obstacles,
                                                      qos_profile=1)
+
+        # Publish the map at 1 Hz so late subscribers (e.g. path_planner) always
+        # receive the current map even when no obstacle updates have arrived.
+        self.create_timer(1.0, self.publish_timer_cb)
 
     def init_params(self):
         self.declare_parameters(
@@ -75,6 +77,9 @@ class MapperNode(Node):
         self.get_logger().info(f'{param.name}={param.value}')
         self.cell_resolution = param.value
 
+    def publish_timer_cb(self):
+        self.publish_map(np.copy(self.map), self.map_pub)
+
     def on_obstacles(self, msg: PolygonsStamped):
         num_obstacles = len(msg.polygons)
         if not num_obstacles:
@@ -87,7 +92,6 @@ class MapperNode(Node):
         self.map = self.inflate_obstacles(np.copy(self.map_uninflated))
 
         self.publish_map(np.copy(self.map), self.map_pub)
-        # publish uninflated map for debugging
         self.publish_map(np.copy(self.map_uninflated), self.map_pub_debug)
 
     def include_obstacle_in_map(self, obstacle: Polygon,
@@ -101,6 +105,7 @@ class MapperNode(Node):
             obstacle_cells[index,
                            1] = int(round(point.y / self.cell_resolution))
 
+        # Draw the obstacle as a filled polygon into the grid
         img = cells.astype(dtype='uint8')
         img_obstacles = cv2.fillPoly(img,
                                      pts=np.int32([obstacle_cells]),
@@ -109,25 +114,20 @@ class MapperNode(Node):
         return img_obstacles.astype(dtype='int8')
 
     def inflate_obstacles(self, cells: np.ndarray) -> np.ndarray:
-        # robot size is most likely larger than one grid cell
-        # therefore, we need to inflate obstacles and walls
-
-        # opencv wants different data type than occupancy grid map msg
+        # Inflate obstacles by approximately 30 cm so the planner keeps
+        # the robot away from walls and obstacles
         img = cells.astype(dtype='uint8')
-
-        # We're inflating the obstacles by ca. 30cm in this example  # TODO
         dilatation_size = int(np.round(0.3 / self.cell_resolution))
 
-        # We will use a circular kernel, feel free to try other kernel shapes
+        # Elliptical kernel for uniform inflation in all directions
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                            (dilatation_size, dilatation_size))
         img_dilated = cv2.dilate(img, kernel, iterations=1)
 
-        # return convert back data type
         return img_dilated.astype(dtype='int8')
 
     def get_tank_walls(self, cells: np.ndarray) -> np.ndarray:
-        # we will set all borders of the grid as occupied
+        # Mark all borders of the grid as occupied
         cells[:, 0] = OCCUPIED
         cells[:, -1] = OCCUPIED
         cells[0, :] = OCCUPIED
@@ -148,7 +148,7 @@ class MapperNode(Node):
         meta_data.resolution = self.cell_resolution
         meta_data.width = self.num_cells_x
         meta_data.height = self.num_cells_y
-        # origin is at (0,0, our depth), same orientation as map frame
+        # Origin at (0, 0, operating depth), same orientation as the map frame
         meta_data.origin = Pose()
         meta_data.origin.position.z = DEPTH
         return meta_data

@@ -15,6 +15,7 @@ install(PROGRAMS
   nodes/path_planner.py
   nodes/position_controller.py
   nodes/yaw_controller.py
+  nodes/rig_tree.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

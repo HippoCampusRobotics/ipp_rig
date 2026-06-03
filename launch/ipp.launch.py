@@ -51,6 +51,14 @@ def generate_launch_description() -> LaunchDescription:
             parameters=[
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
+                    'planning_horizon': 0.5,
+                    'delta': 0.2,
+                    'near_radius': 0.3,
+                    'planning_time_s': 0.5,
+
+                    'goal_tolerance': 0.15,
+                    'robot_z': -0.5,
+                    'replan_timeout_s': 20.0,
                 },
             ],
         ),
