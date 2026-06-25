@@ -4,6 +4,7 @@ import math
 import sys
 import threading
 from enum import Enum, auto
+import math
 
 import numpy as np
 import rclpy
@@ -17,6 +18,7 @@ from std_srvs.srv import Trigger
 from tf_transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 
+# Tells Python to look for rig_tree.py in the same directory as this file.
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from rig_tree import RIGTree
 
@@ -41,6 +43,32 @@ class PathPlanner(Node):
         super().__init__(node_name='path_planner')
         self.state = State.UNSET
 
+        self._declare_parameters()
+
+        self.cell_size: float = None
+        self.occupancy_grid: OccupancyGrid = None
+        self.occupancy_matrix: np.ndarray = None
+        self.current_pose: Pose = None
+
+        self._lock = threading.Lock()
+        self._pending_path: list = None
+        self._new_path_ready: bool = False
+        self._path_end: np.ndarray = None
+        self._planning_active: bool = False
+        self._last_replan_time: float = 0.0
+
+        self.init_path_marker()
+        self.init_publishers()
+        self.init_subscribers()
+        self.init_clients()
+        self.init_services()
+        self._control_timer = self.create_timer(0.1, self.control_timer_cb)
+
+    # ------------------------------------------------------------------
+    # Algorithm parameters
+    # ------------------------------------------------------------------
+
+    def _declare_parameters(self):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
@@ -69,34 +97,23 @@ class PathPlanner(Node):
         # path_follower (0.3 m).
         self.declare_parameter('goal_tolerance', 0.15)
 
-        # Fixed operating depth (m) stamped into every planned waypoint.
-        # RIG-tree plans in 2D (x, y) and z is kept constant. No implementation yet
-        # self.declare_parameter('robot_z', -0.5)
+        self.declare_parameter('robot_z', -0.5)
+        self.declare_parameter('start_x', 0.45)
+        self.declare_parameter('start_y', 0.45)
+        self.declare_parameter('start_yaw', 0.0)
 
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
         self.declare_parameter('replan_timeout_s', 20.0)
 
-        self.declare_parameter('cell_resolution', 0.05)
+    # ------------------------------------------------------------------
+    # ROS connections setup
+    # ------------------------------------------------------------------
 
-        self.cell_size = self.get_parameter('cell_resolution').value
-        self.occupancy_grid: OccupancyGrid = None
-        self.occupancy_matrix: np.ndarray = None
-
-        self.current_pose: Pose = None
-
-        self._lock = threading.Lock()
-        self._pending_path: list = None  # written by the planning thread
-        self._new_path_ready: bool = False
-        self._path_end: np.ndarray = None  # last waypoint of the current plan
-        self._planning_active: bool = False  # prevents concurrent planning threads
-        self._last_replan_time: float = 0.0
-
-        self.path_marker: Marker
-        self.init_path_marker()
-
+    def init_publishers(self):
         self.path_marker_pub = self.create_publisher(Marker, '~/marker', 1)
 
+    def init_subscribers(self):
         self.grid_map_sub = self.create_subscription(OccupancyGrid,
                                                      'occupancy_grid',
                                                      self.on_occupancy_grid, 1)
@@ -104,21 +121,13 @@ class PathPlanner(Node):
                                                  'vision_pose_cov',
                                                  self.on_pose, 1)
 
-        self.init_clients()
-        self.init_services()
-
-        # 10 Hz timer: sends finished paths and checks the replanning condition
-        self._control_timer = self.create_timer(0.1, self.control_timer_cb)
-
-    # ------------------------------------------------------------------
-    # ROS setup
-    # ------------------------------------------------------------------
-
     def init_services(self):
         self.start_service = self.create_service(Trigger, '~/start',
                                                  self.serve_start)
         self.stop_service = self.create_service(Trigger, '~/stop',
                                                 self.serve_stop)
+        self.move_to_start_service = self.create_service(
+            Trigger, '~/move_to_start', self.serve_move_to_start)
 
     def init_clients(self):
         cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
@@ -135,8 +144,7 @@ class PathPlanner(Node):
     def on_occupancy_grid(self, msg: OccupancyGrid):
         self.occupancy_grid = msg
         self.occupancy_matrix = occupancy_grid_to_matrix(msg)
-        if msg.info.resolution != self.cell_size:
-            self.cell_size = msg.info.resolution
+        self.cell_size = msg.info.resolution
 
     def on_pose(self, msg: PoseWithCovarianceStamped):
         self.current_pose = msg.pose.pose
@@ -166,6 +174,43 @@ class PathPlanner(Node):
             return future is not None
         except Exception:
             return False
+
+    def serve_move_to_start(self, _request, response):
+        if (self.state == State.IDLE
+                or self.state == State.UNSET) and self.current_pose is not None:
+            self.get_logger().info('Move to start requested.')
+            response.success = self.do_move_to_start()
+        else:
+            self.get_logger().warn(
+                f'move_to_start ignored: state={self.state.name}, '
+                f'pose_available={self.current_pose is not None}')
+            response.success = False
+        return response
+
+    def do_move_to_start(self):
+        z = self.get_parameter('robot_z').value
+        gx = self.get_parameter('start_x').value
+        gy = self.get_parameter('start_y').value
+        start_yaw = self.get_parameter('start_yaw').value
+
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = 'map'
+
+        q = quaternion_from_euler(0.0, 0.0, start_yaw)
+        orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+
+        ros_path = Path()
+        ros_path.poses = [
+            PoseStamped(header=header,
+                        pose=Pose(position=Point(x=gx, y=gy, z=z),
+                                  orientation=orientation)),
+        ]
+
+        req = SetPath.Request()
+        req.path = ros_path
+        future = self.set_path_client.call_async(req)
+        return future is not None
 
     # ------------------------------------------------------------------
     # Receding-horizon loop
@@ -302,8 +347,7 @@ class PathPlanner(Node):
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""
-        z = float(self.current_pose.position.z) if self.current_pose \
-            else self.get_parameter('robot_z').value
+        z = self.get_parameter('robot_z').value
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
@@ -352,8 +396,7 @@ class PathPlanner(Node):
 
     def publish_path_marker(self, path: list):
         """Publishes the planned path as a line strip in RViz."""
-        z = float(self.current_pose.position.z) if self.current_pose \
-            else self.get_parameter('robot_z').value
+        z = self.get_parameter('robot_z').value
         self.path_marker.header.stamp = self.get_clock().now().to_msg()
         self.path_marker.points = [
             Point(x=float(xy[0]), y=float(xy[1]), z=z) for xy in path

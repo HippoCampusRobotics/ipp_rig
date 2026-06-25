@@ -53,6 +53,12 @@ ros2 service call /bluerov00/path_planner/stop std_srvs/srv/Trigger {}
 
 Start and stop can be called repeatedly to pause and resume the mission. If `vehicle_name` was changed, replace `bluerov00` in the service calls accordingly.
 
+Before starting a mission the robot can be driven to its configured start pose. The service is accepted only when the planner is in the `IDLE` state and a pose estimate is available:
+
+```bash
+ros2 service call /bluerov00/path_planner/move_to_start std_srvs/srv/Trigger {}
+```
+
 ## Scenarios
 
 Obstacle layouts are defined in YAML files under `config/`. Each file contains a list of polygonal obstacles with corner coordinates in metres. Pass the scenario name without the `.yaml` extension. Without a scenario the robot operates in a free tank.
