@@ -1,6 +1,24 @@
 # IPP — Informative Path Planning
 
-RIG-tree based informative path planner for the hippocampus AUV.
+This package implements informative path planning for a BlueROV2 operating in a bounded water area. The robot explores the area autonomously, replanning its path in a receding-horizon loop using a RIG-tree (Hollinger & Sukhatme, IJRR 2014). The workspace dimensions default to the institute's water tank but can be configured via `mapping_params.yaml`.
+
+## Dependencies
+
+The following packages must be cloned into the same workspace:
+
+| Package | Purpose |
+|---|---|
+| `ipp_interfaces` | Custom message types for this package |
+| `scalar_field_interfaces` | ROS messages and services for scalar field queries |
+| `scalar_field_sim` | Simulates a 2D scalar field (Gaussian sources, wall attenuation, noise) and serves measurements on request. Acts as a stand-in for the real sensor |
+| `scalar_field_belief` | Maintains a GP belief over the scalar field: subscribes to measurements, fits an exact GPyTorch GP, and serves posterior mean and variance queries |
+
+```bash
+cd <workspace>/src
+git clone  ...
+```
+
+Then install any remaining ROS dependencies and rebuild.
 
 ## Build
 
@@ -11,44 +29,71 @@ rosdep-ros2     # rosdep install --from-paths src (install any missing ROS depen
 bcode           # cd ~/b_thesis/ros2 && code . (open workspace in VS Code)
 ```
 
-> Python files don't need a rebuild after edits — `--symlink-install` keeps them live.
-> Rebuild is only needed when adding new files or changing CMakeLists.txt.
+Python files don't need a rebuild after edits because `--symlink-install` keeps them live. A rebuild is only needed when adding new files or changing CMakeLists.txt.
 
 ## Run (simulation)
 
+**Terminal 1** — start Gazebo + Spawn Robot and all IPP nodes:
+
 ```bash
-# Terminal 1: Gazebo + IPP nodes
 ros2 launch ipp simulation.launch.py
-
-# Terminal 2: start the planner — runs continuously until stopped
-ros2 service call /bluerov00/path_planner/start std_srvs/srv/Trigger {}
-
-# Terminal 2: stop the planner
-ros2 service call /bluerov00/path_planner/stop std_srvs/srv/Trigger {}
-# Note: start/stop can be called repeatedly to pause and resume the mission.
 ```
 
-## Run (real robot)
+Optional arguments:
+
+| Argument | Default | Description |
+|---|---|---|
+| `vehicle_name` | `bluerov00` | Names the spawned BlueROV in Gazebo and sets the ROS namespace for all topics and services (the BlueROV model is hardcoded) |
+| `scenario` | _(empty)_ | Obstacle layout to load (e.g. `scenario_1`). Leave empty for a free tank. |
+| `start_gui` | `false` | Show the Gazebo GUI. Runs headless by default. |
 
 ```bash
-ros2 launch ipp ipp.launch.py vehicle_name:=bluerov00 use_sim_time:=false
+# with obstacles and Gazebo GUI:
+ros2 launch ipp simulation.launch.py scenario:=scenario_1 start_gui:=true
 ```
-Then start the planner just like above.
+
+RViz launches automatically alongside Gazebo.
+
+**Terminal 2** — start and stop the planner:
+
+```bash
+ros2 service call /bluerov00/path_planner/start std_srvs/srv/Trigger {}
+ros2 service call /bluerov00/path_planner/stop std_srvs/srv/Trigger {}
+```
+
+Start and stop can be called repeatedly to pause and resume the mission. If `vehicle_name` was changed, replace `bluerov00` in the service calls accordingly.
+
+## Scenarios
+
+Obstacle layouts are defined in YAML files under `config/`. Each file contains a list of polygonal obstacles with corner coordinates in metres. Pass the scenario name without the `.yaml` extension. Without a scenario the robot operates in a free tank.
+
+```text
+config/scenario_1.yaml
+config/scenario_2.yaml
+config/scenario_3.yaml
+```
+
+> **Note:** The `scalar_field_sim` package has its own separate spatial representation (bounds and wall segments configured via a TOML file). It does not read the occupancy grid from this package. If a physical obstacle is present, it currently has to be described in two places independently: here for collision avoidance, and in the `scalar_field_sim` scenario for correct field attenuation.
 
 ## Package structure
 
 ```text
 nodes/
-  rig_tree.py      — RIG-tree algorithm (Hollinger & Sukhatme 2014, Alg. 2)
-  path_planner.py  — receding-horizon planning loop (RIG-tree → path_follower)
-  path_follower.py — pure-pursuit waypoint follower
-  mapper.py        — publishes occupancy grid from obstacle data
+  rig_tree.py            — RIG-tree algorithm (Hollinger & Sukhatme 2014, Alg. 2)
+  path_planner.py        — receding-horizon planning loop (RIG-tree to path_follower)
+  path_follower.py       — pure-pursuit waypoint follower
+  mapper.py              — builds occupancy grid from obstacles; inflates obstacles by 30 cm
+  obstacle_publisher.py  — loads a scenario YAML and publishes polygon obstacles at 10 Hz
   position_controller.py — P-control in x/y/z
   yaw_controller.py      — P-control for yaw
 launch/
-  simulation.launch.py  — Gazebo + IPP nodes (sim only)
-  ipp.launch.py         — IPP nodes only (sim + real robot)
+  simulation.launch.py   — Gazebo plus all IPP nodes (sim only)
+  ipp.launch.py          — IPP nodes only
 config/
-  mapping_params.yaml   — tank dimensions, grid resolution
-NOTE.md                 — plain-language system explanation (git-ignored)
+  mapping_params.yaml    — tank dimensions and grid resolution
+  scenario_1.yaml        — obstacle layout 1
+  scenario_2.yaml        — obstacle layout 2
+  scenario_3.yaml        — obstacle layout 3
+  rviz.rviz              — RViz config for simulation
+  rviz_experiment.rviz   — RViz config for real-robot experiments
 ```
