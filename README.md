@@ -12,6 +12,7 @@ The following packages must be cloned into the same workspace:
 | `scalar_field_interfaces` | ROS messages and services for scalar field queries |
 | `scalar_field_sim` | Simulates a 2D scalar field (Gaussian sources, wall attenuation, noise) and serves measurements on request. Acts as a stand-in for the real sensor |
 | `scalar_field_belief` | Maintains a GP belief over the scalar field: subscribes to measurements, fits an exact GPyTorch GP, and serves posterior mean and variance queries |
+| `ipp_rviz_visuals` | Publishes RViz marker arrays for the water tank walls and the BlueROV mesh. Required by `simulation.launch.py` |
 
 ```bash
 cd <workspace>/src
@@ -19,17 +20,6 @@ git clone  ...
 ```
 
 Then install any remaining ROS dependencies and rebuild.
-
-## Build
-
-### Personal aliases
-```bash
-build_ros       # colcon build --symlink-install (Python changes live immediately, no rebuild needed)
-rosdep-ros2     # rosdep install --from-paths src (install any missing ROS dependencies)
-bcode           # cd ~/b_thesis/ros2 && code . (open workspace in VS Code)
-```
-
-Python files don't need a rebuild after edits because `--symlink-install` keeps them live. A rebuild is only needed when adding new files or changing CMakeLists.txt.
 
 ## Run (simulation)
 
@@ -48,7 +38,7 @@ Optional arguments:
 | `start_gui` | `false` | Show the Gazebo GUI. Runs headless by default. |
 
 ```bash
-# with obstacles and Gazebo GUI:
+# for instance with scenario 1 obstacles and Gazebo GUI:
 ros2 launch ipp simulation.launch.py scenario:=scenario_1 start_gui:=true
 ```
 
@@ -97,3 +87,5 @@ config/
   rviz.rviz              — RViz config for simulation
   rviz_experiment.rviz   — RViz config for real-robot experiments
 ```
+
+RViz visual markers (water tank walls, BlueROV mesh) are published by the separate `ipp_rviz_visuals` package (`src/robot_marker_publisher.cpp`). That package is launched automatically by `simulation.launch.py`.
