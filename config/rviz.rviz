@@ -209,7 +209,7 @@ Visualization Manager:
       Name: Marker
       Namespaces:
         bluerov: true
-        pool: true
+        tank: true
       Topic:
         Depth: 5
         Durability Policy: Volatile

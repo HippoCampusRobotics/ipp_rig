@@ -1,8 +1,10 @@
 from ament_index_python.packages import get_package_share_path
 from hippo_common.launch_helper import LaunchArgsDict
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node, PushROSNamespace
 
 
 def generate_launch_description():
@@ -53,5 +55,17 @@ def generate_launch_description():
             str(get_package_share_path('ipp') / 'launch/ipp.launch.py')),
         launch_arguments=args.items(),
     ))
+
+    ############################################################################
+    # RVIZ VISUALS
+    ############################################################################
+    launch_description.add_action(GroupAction([
+        PushROSNamespace(LaunchConfiguration('vehicle_name')),
+        Node(
+            executable='robot_marker_publisher',
+            package='ipp_rviz_visuals',
+            parameters=[{'use_sim_time': True}],
+        ),
+    ]))
 
     return launch_description
