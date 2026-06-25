@@ -9,7 +9,7 @@ from geometry_msgs.msg import (
 from hippo_control_msgs.msg import YawTarget
 from nav_msgs.msg import Path
 from rclpy.node import Node
-from scenario_msgs.srv import SetPath
+from ipp_interfaces.srv import SetPath
 from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion
 

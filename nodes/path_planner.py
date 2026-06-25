@@ -11,7 +11,7 @@ from geometry_msgs.msg import Point, Pose, PoseStamped, PoseWithCovarianceStampe
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from scenario_msgs.srv import SetPath
+from ipp_interfaces.srv import SetPath
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
 from tf_transformations import quaternion_from_euler
