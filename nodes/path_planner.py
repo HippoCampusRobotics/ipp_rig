@@ -162,15 +162,16 @@ class PathPlanner(Node):
 
     def serve_stop(self, _request, response):
         self.get_logger().info('Stop requested.')
+        response.success = self.do_stop()
+        return response
+
+    def do_stop(self):
         self.state = State.IDLE
         with self._lock:
             self._path_end = None
             self._pending_path = None
             self._new_path_ready = False
-        response.success = self.do_stop()
-        return response
-
-    def do_stop(self):
+        self.publish_path_marker([])
         try:
             future = self.path_finished_client.call_async(Trigger.Request())
             return future is not None
