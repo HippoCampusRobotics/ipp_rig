@@ -1,28 +1,57 @@
-from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_path
+from hippo_common.launch_helper import LaunchArgsDict
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
-    fav_sim = str(
-        get_package_share_path('fav') / 'launch/simulation.launch.py')
-    ipp = str(
-        get_package_share_path('ipp') / 'launch/ipp.launch.py')
+    launch_description = LaunchDescription()
 
-    return LaunchDescription([
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(fav_sim),
-            launch_arguments={
-                'vehicle_name': 'bluerov00',
-                'start_gui': 'false',
-            }.items(),
-        ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(ipp),
-            launch_arguments={
-                'vehicle_name': 'bluerov00',
-                'use_sim_time': 'true',
-            }.items(),
-        ),
-    ])
+    launch_description.add_action(DeclareLaunchArgument(
+        'vehicle_name',
+        default_value='bluerov00',
+        description='Vehicle name used as namespace.',
+    ))
+    launch_description.add_action(DeclareLaunchArgument(
+        'start_gui',
+        default_value='false',
+        description='Start the Gazebo GUI. Otherwise runs headless.',
+    ))
+
+    hippo_sim = get_package_share_path('hippo_sim')
+
+    ############################################################################
+    # GAZEBO
+    ############################################################################
+    args = LaunchArgsDict()
+    args.add('start_gui')
+    launch_description.add_action(IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(str(hippo_sim / 'launch/start_gazebo.launch.py')),
+        launch_arguments=args.items(),
+    ))
+
+    ############################################################################
+    # SPAWN BLUEROV
+    ############################################################################
+    args = LaunchArgsDict()
+    args.add_vehicle_name()
+    args['use_sim_time'] = 'true'
+    launch_description.add_action(IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(str(hippo_sim / 'launch/spawn_bluerov.launch.py')),
+        launch_arguments=args.items(),
+    ))
+
+    ############################################################################
+    # IPP
+    ############################################################################
+    args = LaunchArgsDict()
+    args.add('vehicle_name')
+    args['use_sim_time'] = 'true'
+    launch_description.add_action(IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(get_package_share_path('ipp') / 'launch/ipp.launch.py')),
+        launch_arguments=args.items(),
+    ))
+
+    return launch_description
