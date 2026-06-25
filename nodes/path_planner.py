@@ -15,7 +15,7 @@ from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
-from tf_transformations import quaternion_from_euler
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from visualization_msgs.msg import Marker
 
 # Tells Python to look for rig_tree.py in the same directory as this file.
@@ -193,21 +193,44 @@ class PathPlanner(Node):
         z = self.get_parameter('robot_z').value
         gx = self.get_parameter('start_x').value
         gy = self.get_parameter('start_y').value
+
+        cx = self.current_pose.position.x
+        cy = self.current_pose.position.y
+
+        dist = math.hypot(gx - cx, gy - cy)
+        n = max(2,
+                math.ceil(dist / 0.3) +
+                1)  # waypoints at 0.3 m spacing, at least 2
+
+        o = self.current_pose.orientation
+        current_yaw = euler_from_quaternion([o.x, o.y, o.z, o.w])[2]
         start_yaw = self.get_parameter('start_yaw').value
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = 'map'
 
-        q = quaternion_from_euler(0.0, 0.0, start_yaw)
-        orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+        # Straight-line waypoints at 0.3 m spacing
+        # yaw gradually rotates to yaw at start position (interpolation)
+        xs = np.linspace(cx, gx, n)
+        ys = np.linspace(cy, gy, n)
+        yaws = np.linspace(current_yaw, start_yaw, n)
+
+        poses = []
+        for x, y, yaw in zip(xs, ys, yaws):
+            q = quaternion_from_euler(0.0, 0.0, float(yaw))
+            poses.append(
+                PoseStamped(header=header,
+                            pose=Pose(position=Point(x=float(x),
+                                                     y=float(y),
+                                                     z=z),
+                                      orientation=Quaternion(x=q[0],
+                                                             y=q[1],
+                                                             z=q[2],
+                                                             w=q[3]))))
 
         ros_path = Path()
-        ros_path.poses = [
-            PoseStamped(header=header,
-                        pose=Pose(position=Point(x=gx, y=gy, z=z),
-                                  orientation=orientation)),
-        ]
+        ros_path.poses = poses
 
         req = SetPath.Request()
         req.path = ros_path
