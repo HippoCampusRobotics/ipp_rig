@@ -77,7 +77,9 @@ class PathPlanner(Node):
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
         self.declare_parameter('replan_timeout_s', 20.0)
 
-        self.cell_size = 0.2
+        self.declare_parameter('cell_resolution', 0.05)
+
+        self.cell_size = self.get_parameter('cell_resolution').value
         self.occupancy_grid: OccupancyGrid = None
         self.occupancy_matrix: np.ndarray = None
 

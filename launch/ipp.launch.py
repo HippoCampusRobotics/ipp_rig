@@ -51,6 +51,8 @@ def generate_launch_description() -> LaunchDescription:
             executable='path_planner.py',
             package='ipp',
             parameters=[
+                LaunchConfiguration('mapping_params',
+                                    default=mapping_params_file_path),
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
                     'planning_horizon': 0.5,

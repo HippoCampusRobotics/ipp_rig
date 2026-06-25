@@ -37,6 +37,7 @@ class MapperNode(Node):
         self.map = self.get_tank_walls(empty_map)
         self.map_uninflated = np.copy(self.map)
 
+
         self.get_logger().info(
             f'Cell resolution: {self.cell_resolution} m/cell, '
             f'{self.num_cells_x} cells in x, {self.num_cells_y} cells in y.')
