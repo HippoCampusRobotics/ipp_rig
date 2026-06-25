@@ -24,7 +24,6 @@ from rig_tree import RIGTree
 
 
 class State(Enum):
-    UNSET = auto()
     IDLE = auto()
     PLANNING = auto()
     EXECUTING = auto()
@@ -41,7 +40,7 @@ class PathPlanner(Node):
 
     def __init__(self):
         super().__init__(node_name='path_planner')
-        self.state = State.UNSET
+        self.state = State.IDLE
 
         self._declare_parameters()
 
@@ -164,7 +163,10 @@ class PathPlanner(Node):
     def serve_stop(self, _request, response):
         self.get_logger().info('Stop requested.')
         self.state = State.IDLE
-        self._path_end = None
+        with self._lock:
+            self._path_end = None
+            self._pending_path = None
+            self._new_path_ready = False
         response.success = self.do_stop()
         return response
 
@@ -176,8 +178,7 @@ class PathPlanner(Node):
             return False
 
     def serve_move_to_start(self, _request, response):
-        if (self.state == State.IDLE
-                or self.state == State.UNSET) and self.current_pose is not None:
+        if self.state == State.IDLE and self.current_pose is not None:
             self.get_logger().info('Move to start requested.')
             response.success = self.do_move_to_start()
         else:
@@ -282,7 +283,8 @@ class PathPlanner(Node):
                 self._new_path_ready = False
 
         if path:
-            self.send_path(path)
+            if self.state != State.IDLE:
+                self.send_path(path)
             return
 
         # Task 2: retry starting the planning thread.
