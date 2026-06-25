@@ -96,6 +96,7 @@ class PathPlanner(Node):
         # path_follower (0.3 m).
         self.declare_parameter('goal_tolerance', 0.15)
 
+        # Start position for the move_to_start service.
         self.declare_parameter('robot_z', -0.5)
         self.declare_parameter('start_x', 0.45)
         self.declare_parameter('start_y', 0.45)
