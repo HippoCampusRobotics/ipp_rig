@@ -3,29 +3,27 @@
 <package format="3">
   <name>ipp</name>
   <version>0.0.0</version>
-  <description>Our super awesome package</description>
+  <description>Informative path planning package</description>
 
-  <maintainer email="someones.mail.address@tuhh.de">Someones name</maintainer>
+  <maintainer email="b.lato@web.de">Benedikt Lato</maintainer>
 
-  <!-- One license tag required, multiple allowed, one license per tag -->
-  <!-- Commonly used license strings: -->
-  <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
   <license>GPLv2</license>
-
-  <url type="website">hippocampusrobotics.github.io/docs</url>
-
-  <author email="someones.mail@tuhh.de">Someones name</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>yaml-cpp</depend>
+  <depend>ament_index_cpp</depend>
+
   <build_depend>rosidl_default_generators</build_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 
-  <depend>rclpy</depend>
-  <depend>geometry_msgs</depend>
-
-  <!-- The export tag contains other, unspecified, tags -->
   <export>
     <build_type>ament_cmake</build_type>
   </export>

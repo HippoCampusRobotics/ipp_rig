@@ -5,7 +5,7 @@ import rclpy
 from geometry_msgs.msg import Polygon, Pose
 from nav_msgs.msg import MapMetaData, OccupancyGrid
 from rclpy.node import Node
-from scenario_msgs.msg import PolygonsStamped
+from ipp.msg import PolygonsStamped
 
 OCCUPIED = 100
 DEPTH = -0.5

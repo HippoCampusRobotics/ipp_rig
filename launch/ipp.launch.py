@@ -12,28 +12,26 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description() -> LaunchDescription:
     launch_description = LaunchDescription()
-    arg = DeclareLaunchArgument('vehicle_name')
-    launch_description.add_action(arg)
 
-    arg = DeclareLaunchArgument('use_sim_time')
-    launch_description.add_action(arg)
+    launch_description.add_action(DeclareLaunchArgument('vehicle_name'))
+    launch_description.add_action(DeclareLaunchArgument('use_sim_time'))
 
-    arg = DeclareLaunchArgument('use_scenario',
-        default_value='false',
-        description='Set to false during final project event, when scenario is provided by MuM')
-    launch_description.add_action(arg)
+    launch_description.add_action(DeclareLaunchArgument(
+        'scenario',
+        default_value='',
+        description='Name of a scenario YAML in ipp/config/ (e.g. scenario_1). '
+                    'Leave empty to run without obstacles.',
+    ))
 
     package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
 
-    scenario_arg = DeclareLaunchArgument(
-        name='scenario',
-        default_value=str(1),
-        description='The number of the scenario')
-    launch_description.add_action(scenario_arg)
-
     group = GroupAction([
         PushROSNamespace(LaunchConfiguration('vehicle_name')),
+
+        ########################################################################
+        # MAPPER
+        ########################################################################
         Node(
             executable='mapper.py',
             package='ipp',
@@ -45,6 +43,10 @@ def generate_launch_description() -> LaunchDescription:
                 },
             ],
         ),
+
+        ########################################################################
+        # PATH PLANNER
+        ########################################################################
         Node(
             executable='path_planner.py',
             package='ipp',
@@ -55,13 +57,16 @@ def generate_launch_description() -> LaunchDescription:
                     'delta': 0.2,
                     'near_radius': 0.3,
                     'planning_time_s': 0.5,
-
                     'goal_tolerance': 0.15,
                     'robot_z': -0.5,
                     'replan_timeout_s': 20.0,
                 },
             ],
         ),
+
+        ########################################################################
+        # PATH FOLLOWER
+        ########################################################################
         Node(
             executable='path_follower.py',
             package='ipp',
@@ -71,11 +76,21 @@ def generate_launch_description() -> LaunchDescription:
                 },
             ],
         ),
-        Node(executable='position_controller.py',
-             package='ipp',
-             parameters=[{
-                 'use_sim_time': LaunchConfiguration('use_sim_time'),
-             }]),
+
+        ########################################################################
+        # POSITION CONTROLLER
+        ########################################################################
+        Node(
+            executable='position_controller.py',
+            package='ipp',
+            parameters=[{
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+            }],
+        ),
+
+        ########################################################################
+        # YAW CONTROLLER
+        ########################################################################
         Node(
             executable='yaw_controller.py',
             package='ipp',
@@ -85,35 +100,31 @@ def generate_launch_description() -> LaunchDescription:
                 },
             ],
         ),
+
+        ########################################################################
+        # OBSTACLE PUBLISHER
+        ########################################################################
         Node(
-            executable='scenario_node',
-            package='fav',
-            parameters=[
-                {
-                    'scenario': LaunchConfiguration('scenario'),
-                    'use_sim_time': LaunchConfiguration('use_sim_time')
-                },
-            ],
-            condition=IfCondition(LaunchConfiguration('use_scenario')),
-        ),
-        Node(
-            executable='robot_marker_publisher',
-            package='fav',
+            executable='obstacle_publisher',
+            package='ipp',
             parameters=[
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
+                    'scenario': LaunchConfiguration('scenario'),
                 },
             ],
         ),
     ])
     launch_description.add_action(group)
 
+    ############################################################################
+    # RVIZ
+    ############################################################################
     rviz_file_sim = str(
         get_package_share_path('ipp') / 'config/rviz.rviz'
     )
     rviz_file_experiment = str(
-        get_package_share_path('ipp')
-        / 'config/rviz_experiment.rviz'
+        get_package_share_path('ipp') / 'config/rviz_experiment.rviz'
     )
     group = GroupAction(
         [
