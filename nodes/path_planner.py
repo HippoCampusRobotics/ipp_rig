@@ -102,6 +102,8 @@ class PathPlanner(Node):
         self.declare_parameter('start_y', 0.45)
         self.declare_parameter('start_yaw', 0.0)
 
+        self.declare_parameter('execution_horizon_m', 0.2)
+
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
         self.declare_parameter('replan_timeout_s', 20.0)
@@ -353,24 +355,43 @@ class PathPlanner(Node):
             self.state = State.PLANNING
             self.trigger_replan()
 
+    def _truncate_path_to_distance(self, path: list, max_dist: float) -> list:
+        """Cuts path short so the robot travels at most max_dist meters along it."""
+        if len(path) <= 2:
+            return path
+        traveled = 0.0
+        for i in range(1, len(path)):
+            x0, y0 = path[i - 1]
+            x1, y1 = path[i]
+            traveled += math.hypot(x1 - x0, y1 -
+                                   y0)  # cumulative distance of path segments
+            if traveled >= max_dist:
+                return path[:i + 1]
+        return path
+
     def send_path(self, path: list):
-        """Converts a RIG-tree path to nav_msgs/Path and sends it to path_follower."""
+        """Sends only the execution-horizon slice of the planned path to path_follower."""
         if not path:
             self.get_logger().warn('Empty path from RIG-tree, retrying.')
             self.state = State.PLANNING
             return
 
-        ros_path = self.rig_path_to_ros(path)
+        exec_horizon = self.get_parameter('execution_horizon_m').value
+        executed_path = self._truncate_path_to_distance(path, exec_horizon)
+
+        ros_path = self.rig_path_to_ros(executed_path)
         req = SetPath.Request()
         req.path = ros_path
         self.set_path_client.call_async(req)
 
-        self._path_end = path[-1]
+        self._path_end = executed_path[-1]
         self._last_replan_time = self.get_clock().now().nanoseconds * 1e-9
         self.state = State.EXECUTING
 
         self.publish_path_marker(path)
-        self.get_logger().info(f'Path with {len(path)} waypoints sent.')
+        self.get_logger().info(
+            f'Executing {len(executed_path)} of {len(path)} waypoints '
+            f'(execution_horizon={exec_horizon:.2f} m).')
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""
