@@ -63,6 +63,8 @@ class PathPlanner(Node):
         self.init_clients()
         self.init_services()
         self._control_timer = self.create_timer(0.1, self.control_timer_cb)
+        self._measurement_timer = self.create_timer(2.0,
+                                                    self._trigger_measurement)
 
     # ------------------------------------------------------------------
     # Algorithm parameters
@@ -72,7 +74,7 @@ class PathPlanner(Node):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 0.5)
+        self.declare_parameter('planning_horizon', 1.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -89,7 +91,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 0.5)
+        self.declare_parameter('planning_time_s', 4.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -144,6 +146,19 @@ class PathPlanner(Node):
             QueryScalarFieldBelief,
             'query_scalar_field_belief',
             callback_group=belief_cb_group,
+        )
+        measurement_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup(
+        )
+        self.measurement_client = self.create_client(
+            Trigger,
+            'trigger_ir_measurement',
+            callback_group=measurement_cb_group,
+        )
+        reset_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
+        self.reset_belief_client = self.create_client(
+            Trigger,
+            'reset_scalar_field_belief',
+            callback_group=reset_cb_group,
         )
 
     # ------------------------------------------------------------------
@@ -200,6 +215,9 @@ class PathPlanner(Node):
         return response
 
     def do_move_to_start(self):
+        if self.reset_belief_client.service_is_ready():
+            self.reset_belief_client.call_async(Trigger.Request())
+            self.get_logger().info('Belief reset.')
         z = self.get_parameter('robot_z').value
         gx = self.get_parameter('start_x').value
         gy = self.get_parameter('start_y').value
@@ -294,6 +312,12 @@ class PathPlanner(Node):
             self._pending_path = path
             self._new_path_ready = True
             self._planning_active = False
+
+    def _trigger_measurement(self):
+        if self.state == State.IDLE:
+            return
+        if self.measurement_client.service_is_ready():
+            self.measurement_client.call_async(Trigger.Request())
 
     def make_info_fn(self):
         if not self.belief_client.service_is_ready():
