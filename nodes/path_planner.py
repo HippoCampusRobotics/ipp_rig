@@ -305,7 +305,10 @@ class PathPlanner(Node):
             resolution=self.cell_size,
             info_fn=self.make_info_fn(),
         )
-        tree.run(planning_time_s=self.get_parameter('planning_time_s').value)
+        stats = tree.run(planning_time_s=self.get_parameter('planning_time_s').value)
+        self.get_logger().info(
+            f'Planning done: {stats["iterations"]} iterations in {stats["elapsed_s"]:.2f} s, '
+            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed)')
         path = tree.best_path()
 
         with self._lock:

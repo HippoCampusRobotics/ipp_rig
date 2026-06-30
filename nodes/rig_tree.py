@@ -51,6 +51,7 @@ class RIGTree:
             lambda i_near, _: i_near + 1.0
         )  # Fallback: +1 information per step if no info_fn provided
 
+        self.x_start = x_start.copy()
         self.height, self.width = grid.shape
         self.x_max = self.width * resolution
         self.y_max = self.height * resolution
@@ -67,10 +68,11 @@ class RIGTree:
     # ------------------------------------------------------------------
 
     def _sample(self) -> np.ndarray:
-        """Sample(X_all): uniform random point in the workspace."""
-        return np.array(
-            [random.uniform(0.0, self.x_max),
-             random.uniform(0.0, self.y_max)])
+        r = self.planning_horizon * math.sqrt(random.random())
+        theta = random.uniform(0.0, 2 * math.pi)
+        x = float(np.clip(self.x_start[0] + r * math.cos(theta), 0.0, self.x_max))
+        y = float(np.clip(self.x_start[1] + r * math.sin(theta), 0.0, self.y_max))
+        return np.array([x, y])
 
     def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
         """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most Delta."""
@@ -128,16 +130,22 @@ class RIGTree:
     # Algorithm 2 main loop
     # ------------------------------------------------------------------
 
-    def run(self, planning_time_s: float = 1.0):
-        """Anytime algorithm: runs until the time limit expires ("while not terminated" in the paper)."""
+    def run(self, planning_time_s: float = 1.0) -> dict:
+        """Anytime algorithm: runs until the time limit expires ("while not terminated" in the paper).
+
+        Returns a stats dict: iterations, elapsed_s, saturated (True = tree exhausted before deadline).
+        """
         deadline = time.monotonic() + planning_time_s
+        t_start = time.monotonic()
+        iterations = 0
+        nodes_added = 0
         while time.monotonic() < deadline:
+            iterations += 1
+            nodes_before = len(self.nodes)
             # Open nodes are those not yet closed by the planning horizon
             open_arr = np.array(
                 [i for i in range(len(self.nodes)) if i not in self.closed],
                 dtype=int)
-            if len(open_arr) == 0:
-                break
 
             # Build KD-tree once per iteration over open node positions: O(n log n).
             # All spatial queries within this iteration are then O(log n).
@@ -174,6 +182,16 @@ class RIGTree:
 
                 if c_new > self.planning_horizon:
                     self.closed.add(new_idx)
+
+            nodes_added += len(self.nodes) - nodes_before
+
+        return {
+            'iterations': iterations,
+            'elapsed_s': time.monotonic() - t_start,
+            'nodes_added': nodes_added,
+            'nodes': len(self.nodes),
+            'closed': len(self.closed),
+        }
 
     # ------------------------------------------------------------------
     # Result extraction
