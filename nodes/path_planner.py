@@ -74,7 +74,7 @@ class PathPlanner(Node):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 1.0)
+        self.declare_parameter('planning_horizon', 2.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -91,7 +91,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 4.0)
+        self.declare_parameter('planning_time_s', 20.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -105,11 +105,11 @@ class PathPlanner(Node):
         self.declare_parameter('start_y', 0.45)
         self.declare_parameter('start_yaw', 0.0)
 
-        self.declare_parameter('execution_horizon_m', 0.2)
+        self.declare_parameter('execution_horizon_m', 0.5)
 
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
-        self.declare_parameter('replan_timeout_s', 20.0)
+        self.declare_parameter('replan_timeout_s', 30.0)
 
     # ------------------------------------------------------------------
     # ROS connections setup
@@ -303,12 +303,14 @@ class PathPlanner(Node):
             R=self.get_parameter('near_radius').value,
             grid=grid,
             resolution=self.cell_size,
-            info_fn=self.make_info_fn(),
+            batch_info_fn=self.make_batch_info_fn(),
         )
-        stats = tree.run(planning_time_s=self.get_parameter('planning_time_s').value)
+        stats = tree.run(
+            planning_time_s=self.get_parameter('planning_time_s').value)
         self.get_logger().info(
             f'Planning done: {stats["iterations"]} iterations in {stats["elapsed_s"]:.2f} s, '
-            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed)')
+            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed)'
+        )
         path = tree.best_path()
 
         with self._lock:
@@ -322,34 +324,40 @@ class PathPlanner(Node):
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
 
-    def make_info_fn(self):
+    def make_batch_info_fn(self):
+        """Returns a function that queries GP variance for a list of positions in one call.
+
+        The returned increments (log variance) are added to the parent's accumulated
+        information in rig_tree.run() (Mean Entropy from Viseras 2019). Returns None if the service is not ready;
+        rig_tree then falls back to uniform +1 per step.
+        """
         if not self.belief_client.service_is_ready():
-            self.get_logger().warn('Belief service not ready.')
+            self.get_logger().warn(
+                'Belief service not ready, using uniform information.')
             return None
 
-        # accumulates log(sigma^2) per step. best_path (in rig_tree.py) later normalizes by cost -> mean entropy
-        def info_fn(i_near: float, x_new: np.ndarray) -> float:
+        def batch_info_fn(positions: list) -> list:
             request = QueryScalarFieldBelief.Request()
-            ps = PoseStamped()
-            ps.header.frame_id = 'map'
-            ps.pose.position.x = float(x_new[0])
-            ps.pose.position.y = float(x_new[1])
-            request.queries = [ps]
+            for pos in positions:
+                ps = PoseStamped()
+                ps.header.frame_id = 'map'
+                ps.pose.position.x = float(pos[0])
+                ps.pose.position.y = float(pos[1])
+                request.queries.append(ps)
+
             event = threading.Event()
-
-            def on_response(f):
-                event.set()
-
             future = self.belief_client.call_async(request)
-            future.add_done_callback(on_response)
-            if not event.wait(timeout=0.1):
-                return i_near
+            future.add_done_callback(lambda _: event.set())
+            if not event.wait(timeout=1.0):
+                return [1.0] * len(positions)
             result = future.result()
-            if result is None or not result.success or not result.variance:
-                return i_near
-            return i_near + math.log(max(result.variance[0], 1e-12))
+            if result is None or not result.success or len(
+                    result.variance) != len(positions):
+                return [1.0] * len(positions)
+            # log variance as information increment; clamped to avoid log(0)
+            return [math.log(max(v, 1e-12)) for v in result.variance]
 
-        return info_fn
+        return batch_info_fn
 
     def control_timer_cb(self):
         """10 Hz: send finished paths and check the replanning condition.

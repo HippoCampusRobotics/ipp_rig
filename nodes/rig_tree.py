@@ -27,7 +27,9 @@ class RIGTree:
         R                - near radius
         grid             - 2D numpy array (rows=y, cols=x); cell >= 50 means occupied
         resolution       - metres per cell
-        info_fn          - optional callable(i_near, x_new) -> float; default: +1 per step
+        batch_info_fn    - optional callable(list[np.ndarray]) -> list[float];
+                           returns log-variance increments for a batch of positions.
+                           Falls back to uniform +1 per step if None.
     """
 
     def __init__(
@@ -38,7 +40,7 @@ class RIGTree:
         R: float,
         grid: np.ndarray,
         resolution: float,
-        info_fn=None,
+        batch_info_fn=None,
     ):
         self.delta = delta
         self.planning_horizon = planning_horizon
@@ -47,9 +49,7 @@ class RIGTree:
         self.eps_sq = (delta / 2.0)**2
         self.grid = grid
         self.resolution = resolution
-        self._info_fn = info_fn if info_fn is not None else (
-            lambda i_near, _: i_near + 1.0
-        )  # Fallback: +1 information per step if no info_fn provided
+        self._batch_info_fn = batch_info_fn
 
         self.x_start = x_start.copy()
         self.height, self.width = grid.shape
@@ -70,8 +70,10 @@ class RIGTree:
     def _sample(self) -> np.ndarray:
         r = self.planning_horizon * math.sqrt(random.random())
         theta = random.uniform(0.0, 2 * math.pi)
-        x = float(np.clip(self.x_start[0] + r * math.cos(theta), 0.0, self.x_max))
-        y = float(np.clip(self.x_start[1] + r * math.sin(theta), 0.0, self.y_max))
+        x = float(
+            np.clip(self.x_start[0] + r * math.cos(theta), 0.0, self.x_max))
+        y = float(
+            np.clip(self.x_start[1] + r * math.sin(theta), 0.0, self.y_max))
         return np.array([x, y])
 
     def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
@@ -158,21 +160,39 @@ class RIGTree:
             nearest_idx = int(open_arr[li_nearest])
             x_feasible = self._steer(self.nodes[nearest_idx].x, x_samp)
 
-            # Lines 10-29: find near nodes and extend each toward x_feasible
+            # Lines 10-29: find near nodes and extend each toward x_feasible.
+            # Split into three phases so GP queries can be batched (one service
+            # call per iteration instead of one per near node).
             near_local = kd.query_ball_point(x_feasible, r=self.R)
             near_arr = open_arr[near_local]
 
+            # Phase 1: geometry, steer and collision check, no GP yet.
+            candidates = []
             for near_idx in near_arr:
                 n_near = self.nodes[near_idx]
                 x_new = self._steer(n_near.x, x_feasible)
-
                 if not self._no_collision(n_near.x, x_new):
                     continue
-
-                i_new = self._info_fn(n_near.info, x_new)
                 c_new = n_near.cost + self._evaluate_cost(n_near.x, x_new)
-                n_new = Node(x=x_new, cost=c_new, info=i_new, parent=near_idx)
+                candidates.append((near_idx, x_new, c_new))
 
+            if not candidates:
+                continue
+
+            # Phase 2: GP query, one batch call for all candidates.
+            # Falls back to uniform +1 per step when no batch function is available
+            # (e.g. GP service not ready).
+            if self._batch_info_fn is not None:
+                increments = self._batch_info_fn([x for _, x, _ in candidates])
+            else:
+                increments = [1.0] * len(candidates)
+
+            # Phase 3: build and insert nodes.
+            for j, (near_idx, x_new, c_new) in enumerate(candidates):
+                n_near = self.nodes[near_idx]
+                i_new = n_near.info + increments[j]
+
+                n_new = Node(x=x_new, cost=c_new, info=i_new, parent=near_idx)
                 if self._prune(n_new, kd, open_arr):
                     continue
 
