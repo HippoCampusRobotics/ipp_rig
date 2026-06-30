@@ -13,6 +13,7 @@ from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
+from scalar_field_interfaces.srv import QueryScalarFieldBelief
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
@@ -138,6 +139,12 @@ class PathPlanner(Node):
                                                   callback_group=cb_group)
         self.path_finished_client = self.create_client(
             Trigger, 'path_follower/path_finished', callback_group=cb_group)
+        belief_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
+        self.belief_client = self.create_client(
+            QueryScalarFieldBelief,
+            'query_scalar_field_belief',
+            callback_group=belief_cb_group,
+        )
 
     # ------------------------------------------------------------------
     # Subscribers
@@ -289,9 +296,33 @@ class PathPlanner(Node):
             self._planning_active = False
 
     def make_info_fn(self):
-        """Returns the information function. Replace with GP variance lookup when available."""
-        return None  # placeholder: RIGTree counts +1.0 per step (modular)
-        # Later: return lambda i_near, x_new: i_near + self._gp_variance_at(x_new)
+        if not self.belief_client.service_is_ready():
+            self.get_logger().warn('Belief service not ready.')
+            return None
+
+        # accumulates log(sigma^2) per step. best_path (in rig_tree.py) later normalizes by cost -> mean entropy
+        def info_fn(i_near: float, x_new: np.ndarray) -> float:
+            request = QueryScalarFieldBelief.Request()
+            ps = PoseStamped()
+            ps.header.frame_id = 'map'
+            ps.pose.position.x = float(x_new[0])
+            ps.pose.position.y = float(x_new[1])
+            request.queries = [ps]
+            event = threading.Event()
+
+            def on_response(f):
+                event.set()
+
+            future = self.belief_client.call_async(request)
+            future.add_done_callback(on_response)
+            if not event.wait(timeout=0.1):
+                return i_near
+            result = future.result()
+            if result is None or not result.success or not result.variance:
+                return i_near
+            return i_near + math.log(max(result.variance[0], 1e-12))
+
+        return info_fn
 
     def control_timer_cb(self):
         """10 Hz: send finished paths and check the replanning condition.

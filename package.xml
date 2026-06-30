@@ -22,6 +22,7 @@
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
   <depend>ipp_interfaces</depend>
+  <depend>scalar_field_interfaces</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

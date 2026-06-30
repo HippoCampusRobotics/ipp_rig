@@ -44,10 +44,12 @@ class RIGTree:
         self.planning_horizon = planning_horizon
         self.R = R
         self.R_sq = R * R
-        self.eps_sq = (delta / 2.0) ** 2
+        self.eps_sq = (delta / 2.0)**2
         self.grid = grid
         self.resolution = resolution
-        self._info_fn = info_fn if info_fn is not None else (lambda i_near, _: i_near + 1.0)
+        self._info_fn = info_fn if info_fn is not None else (
+            lambda i_near, _: i_near + 1.0
+        )  # Fallback: +1 information per step if no info_fn provided
 
         self.height, self.width = grid.shape
         self.x_max = self.width * resolution
@@ -56,7 +58,8 @@ class RIGTree:
         i_init = self._initial_information(x_start)
         root = Node(x=x_start.copy(), cost=0.0, info=i_init, parent=None)
         self.nodes: List[Node] = [root]
-        self.closed: set = set()  # V_closed: nodes whose path cost exceeds the planning horizon
+        self.closed: set = set(
+        )  # V_closed: nodes whose path cost exceeds the planning horizon
         self.edges: List[Tuple[int, int]] = []
 
     # ------------------------------------------------------------------
@@ -65,8 +68,9 @@ class RIGTree:
 
     def _sample(self) -> np.ndarray:
         """Sample(X_all): uniform random point in the workspace."""
-        return np.array([random.uniform(0.0, self.x_max),
-                         random.uniform(0.0, self.y_max)])
+        return np.array(
+            [random.uniform(0.0, self.x_max),
+             random.uniform(0.0, self.y_max)])
 
     def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
         """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most Delta."""
@@ -102,10 +106,6 @@ class RIGTree:
         """InitialInformation(x_start, E): information at the root is always zero."""
         return 0.0
 
-    def _information(self, i_near: float, x_new: np.ndarray) -> float:
-        """Information(I_near, x_new, E): delegates to info_fn."""
-        return self._info_fn(i_near, x_new)
-
     def _evaluate_cost(self, x_from: np.ndarray, x_to: np.ndarray) -> float:
         """EvaluateCost(x_near, x_new): Euclidean distance."""
         return math.hypot(x_to[0] - x_from[0], x_to[1] - x_from[1])
@@ -133,8 +133,9 @@ class RIGTree:
         deadline = time.monotonic() + planning_time_s
         while time.monotonic() < deadline:
             # Open nodes are those not yet closed by the planning horizon
-            open_arr = np.array([i for i in range(len(self.nodes))
-                                 if i not in self.closed], dtype=int)
+            open_arr = np.array(
+                [i for i in range(len(self.nodes)) if i not in self.closed],
+                dtype=int)
             if len(open_arr) == 0:
                 break
 
@@ -160,7 +161,7 @@ class RIGTree:
                 if not self._no_collision(n_near.x, x_new):
                     continue
 
-                i_new = self._information(n_near.info, x_new)
+                i_new = self._info_fn(n_near.info, x_new)
                 c_new = n_near.cost + self._evaluate_cost(n_near.x, x_new)
                 n_new = Node(x=x_new, cost=c_new, info=i_new, parent=near_idx)
 
@@ -182,11 +183,17 @@ class RIGTree:
         """Reconstructs the most informative completed trajectory."""
         if not self.closed:
             return []
-        best_idx = max(self.closed, key=lambda i: self.nodes[i].info)
-        path = []
+
+        # key compares mean entropy (info/cost) of closed paths, not the raw index
+        best_idx = max(self.closed,
+                       key=lambda i: self.nodes[i].info / self.nodes[i].cost)
         idx: Optional[int] = best_idx
+
+        # Reconstruct most informativepath by following parent links back to the root
+        path = []
         while idx is not None:
             path.append(self.nodes[idx].x.copy())
             idx = self.nodes[idx].parent
         path.reverse()
+
         return path
