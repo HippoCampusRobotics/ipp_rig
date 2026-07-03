@@ -4,7 +4,6 @@ import math
 import sys
 import threading
 from enum import Enum, auto
-import math
 
 import numpy as np
 import rclpy
@@ -13,7 +12,7 @@ from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
-from scalar_field_interfaces.srv import QueryScalarFieldBelief
+from scalar_field_interfaces.srv import QueryScalarFieldBeliefCovariance
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
@@ -74,7 +73,7 @@ class PathPlanner(Node):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 2.0)
+        self.declare_parameter('planning_horizon', 1.5)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -91,7 +90,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 20.0)
+        self.declare_parameter('planning_time_s', 5.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -141,12 +140,14 @@ class PathPlanner(Node):
                                                   callback_group=cb_group)
         self.path_finished_client = self.create_client(
             Trigger, 'path_follower/path_finished', callback_group=cb_group)
+
         belief_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
-        self.belief_client = self.create_client(
-            QueryScalarFieldBelief,
-            'query_scalar_field_belief',
+        self.belief_covariance_client = self.create_client(
+            QueryScalarFieldBeliefCovariance,
+            'query_scalar_field_belief_covariance',
             callback_group=belief_cb_group,
         )
+
         measurement_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup(
         )
         self.measurement_client = self.create_client(
@@ -154,6 +155,7 @@ class PathPlanner(Node):
             'trigger_ir_measurement',
             callback_group=measurement_cb_group,
         )
+
         reset_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
         self.reset_belief_client = self.create_client(
             Trigger,
@@ -309,8 +311,8 @@ class PathPlanner(Node):
             planning_time_s=self.get_parameter('planning_time_s').value)
         self.get_logger().info(
             f'Planning done: {stats["iterations"]} iterations in {stats["elapsed_s"]:.2f} s, '
-            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed)'
-        )
+            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed), '
+            f'{stats["gp_calls"]} belief covariance calls')
         path = tree.best_path()
 
         with self._lock:
@@ -325,37 +327,88 @@ class PathPlanner(Node):
             self.measurement_client.call_async(Trigger.Request())
 
     def make_batch_info_fn(self):
-        """Returns a function that queries GP variance for a list of positions in one call.
-
-        The returned increments (log variance) are added to the parent's accumulated
-        information in rig_tree.run() (Mean Entropy from Viseras 2019). Returns None if the service is not ready;
-        rig_tree then falls back to uniform +1 per step.
+        """Returns a function that queries GP covariance for a batch of
+        candidate paths in one call, and turns it into path-conditioned
+        entropy increments (Conditional Entropy from Krause et al. 2008, Eq. 5) added to the parent's
+        accumulated information in rig_tree.run(). Returns None if the
+        service is not ready; rig_tree then falls back to uniform +1 per step.
         """
-        if not self.belief_client.service_is_ready():
+        if not self.belief_covariance_client.service_is_ready():
             self.get_logger().warn(
-                'Belief service not ready, using uniform information.')
+                'Belief covariance service not ready, using uniform information.'
+            )
             return None
 
-        def batch_info_fn(positions: list) -> list:
-            request = QueryScalarFieldBelief.Request()
-            for pos in positions:
+        def batch_info_fn(paths: list) -> list:
+            # Candidates often share earlier points on their path (e.g. two
+            # candidates branching off the same point), so give every point
+            # a number and only query the belief service about each once.
+            query_points = []
+            index_of = {}
+
+            def get_index(pos):
+                # Round to avoid floating-point noise creating a duplicate
+                # entry for what is really the same point.
+                key = (round(float(pos[0]), 9), round(float(pos[1]), 9))
+                idx = index_of.get(key)
+                if idx is None:
+                    idx = len(query_points)
+                    index_of[key] = idx
+                    query_points.append(pos)
+                return idx
+
+            # Each candidate's path, translated into point numbers.
+            candidate_indices = [[get_index(p) for p in path] for path in paths]
+
+            request = QueryScalarFieldBeliefCovariance.Request()
+            for pos in query_points:
                 ps = PoseStamped()
                 ps.header.frame_id = 'map'
                 ps.pose.position.x = float(pos[0])
                 ps.pose.position.y = float(pos[1])
                 request.queries.append(ps)
 
+            # Do service call on planning thread
             event = threading.Event()
-            future = self.belief_client.call_async(request)
+            future = self.belief_covariance_client.call_async(request)
             future.add_done_callback(lambda _: event.set())
             if not event.wait(timeout=1.0):
-                return [1.0] * len(positions)
+                return [1.0] * len(paths)  # Fallback, just put 1 for every path
             result = future.result()
-            if result is None or not result.success or len(
-                    result.variance) != len(positions):
-                return [1.0] * len(positions)
-            # log variance as information increment; clamped to avoid log(0)
-            return [math.log(max(v, 1e-12)) for v in result.variance]
+            n = len(query_points)
+            if (result is None or not result.success
+                    or len(result.covariance_matrix) != n * n):
+                return [1.0] * len(paths)  # Fallback, just put 1 for every path
+
+            # reshape flat list that the ROS2 service sends into the proper matrix
+            cov = np.array(result.covariance_matrix).reshape(n, n)
+
+            # Each candidate's own new point is always last in its index
+            # list, so sub[:-1, :-1] is the ancestor-ancestor block (K_AA),
+            # sub[:-1, -1] is ancestor-to-new-point (K_Ay), and sub[-1, -1]
+            # is the new point's own variance (K_yy).
+            info_increments = []
+            for idx in candidate_indices:
+                sub = cov[np.ix_(idx, idx)]
+                if len(idx) == 1:
+                    # No ancestors yet (candidate extends directly from the
+                    # root): conditional variance is just the plain variance.
+                    sigma2_cond = sub[0, 0]
+                else:
+                    k_aa = sub[:-1, :-1]
+                    k_ay = sub[:-1, -1]
+                    k_yy = sub[-1, -1]
+                    # Jitter keeps K_AA invertible even if two ancestors
+                    # are almost the same position.
+                    jitter = 1e-9 * np.eye(len(idx) - 1)
+                    sigma2_cond = k_yy - k_ay @ np.linalg.solve(
+                        k_aa + jitter, k_ay)
+                # Clamp above zero: rounding error could otherwise send
+                # this slightly negative, which log() can't handle.
+                sigma2_cond = max(float(sigma2_cond), 1e-12)
+                info_increments.append(
+                    0.5 * math.log(2 * math.pi * math.e * sigma2_cond))
+            return info_increments
 
         return batch_info_fn
 

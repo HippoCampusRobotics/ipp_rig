@@ -3,7 +3,7 @@
 import math
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -16,6 +16,10 @@ class Node:
     cost: float
     info: float
     parent: Optional[int] = None
+    # All positions from the root to this node, in order, including this
+    # node's own position as the last entry.
+    path_points: List[np.ndarray] = field(
+        default_factory=list)  # Fresh list per Node instance
 
 
 class RIGTree:
@@ -27,9 +31,10 @@ class RIGTree:
         R                - near radius
         grid             - 2D numpy array (rows=y, cols=x); cell >= 50 means occupied
         resolution       - metres per cell
-        batch_info_fn    - optional callable(list[np.ndarray]) -> list[float];
-                           returns log-variance increments for a batch of positions.
-                           Falls back to uniform +1 per step if None.
+        batch_info_fn    - takes one path per candidate (ancestor positions
+                           followed by the candidate's own new position) and
+                           returns a path-conditioned entropy increment for
+                           each. Falls back to uniform +1 per step if None.
     """
 
     def __init__(
@@ -57,7 +62,13 @@ class RIGTree:
         self.y_max = self.height * resolution
 
         i_init = self._initial_information(x_start)
-        root = Node(x=x_start.copy(), cost=0.0, info=i_init, parent=None)
+        # path_points starts empty: the root is not yet part of any scored
+        # path
+        root = Node(x=x_start.copy(),
+                    cost=0.0,
+                    info=i_init,
+                    parent=None,
+                    path_points=[])
         self.nodes: List[Node] = [root]
         self.closed: set = set(
         )  # V_closed: nodes whose path cost exceeds the planning horizon
@@ -141,6 +152,7 @@ class RIGTree:
         t_start = time.monotonic()
         iterations = 0
         nodes_added = 0
+        gp_calls = 0
         while time.monotonic() < deadline:
             iterations += 1
             nodes_before = len(self.nodes)
@@ -174,7 +186,8 @@ class RIGTree:
                 if not self._no_collision(n_near.x, x_new):
                     continue
                 c_new = n_near.cost + self._evaluate_cost(n_near.x, x_new)
-                candidates.append((near_idx, x_new, c_new))
+                path_points = n_near.path_points + [x_new]
+                candidates.append((near_idx, x_new, c_new, path_points))
 
             if not candidates:
                 continue
@@ -183,16 +196,23 @@ class RIGTree:
             # Falls back to uniform +1 per step when no batch function is available
             # (e.g. GP service not ready).
             if self._batch_info_fn is not None:
-                increments = self._batch_info_fn([x for _, x, _ in candidates])
+                increments = self._batch_info_fn(
+                    [p for _, _, _, p in candidates])
+                gp_calls += 1
             else:
                 increments = [1.0] * len(candidates)
 
             # Phase 3: build and insert nodes.
-            for j, (near_idx, x_new, c_new) in enumerate(candidates):
+            for j, (near_idx, x_new, c_new,
+                    path_points) in enumerate(candidates):
                 n_near = self.nodes[near_idx]
                 i_new = n_near.info + increments[j]
 
-                n_new = Node(x=x_new, cost=c_new, info=i_new, parent=near_idx)
+                n_new = Node(x=x_new,
+                             cost=c_new,
+                             info=i_new,
+                             parent=near_idx,
+                             path_points=path_points)
                 if self._prune(n_new, kd, open_arr):
                     continue
 
@@ -211,6 +231,7 @@ class RIGTree:
             'nodes_added': nodes_added,
             'nodes': len(self.nodes),
             'closed': len(self.closed),
+            'gp_calls': gp_calls,
         }
 
     # ------------------------------------------------------------------
