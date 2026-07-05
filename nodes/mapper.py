@@ -34,8 +34,8 @@ class MapperNode(Node):
 
         # x is columns, y is rows, so the array shape is (y, x)
         empty_map = np.zeros((self.num_cells_y, self.num_cells_x), dtype='int8')
-        self.map = self.get_tank_walls(empty_map)
-        self.map_uninflated = np.copy(self.map)
+        self.map_uninflated = self.get_tank_walls(empty_map)
+        self.map = self.inflate_obstacles(np.copy(self.map_uninflated))
 
 
         self.get_logger().info(
