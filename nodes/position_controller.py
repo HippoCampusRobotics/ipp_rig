@@ -26,17 +26,50 @@ class PositionController(Node):
         self.timeout_timer = self.create_timer(0.5, self.on_setpoint_timeout)
         self.pose_counter = 0
 
+        self._declare_parameters()
+
+        self.last_time = None
+        self.integral_x = 0.0
+        self.integral_y = 0.0
+        self.integral_z = 0.0
+        self.last_error_x = 0.0
+        self.last_error_y = 0.0
+        self.last_error_z = 0.0
+
+    def _declare_parameters(self):
+        # PID gains for the horizontal (x/y) axes, applied in the vehicle frame.
+        self.declare_parameter('kp_xy', 1.0)
+        self.declare_parameter('ki_xy', 0.1)
+        self.declare_parameter('kd_xy', 0.05)
+
+        # PID gains for the vertical (z/depth) axis, tuned separately since
+        # buoyancy makes the depth response different from the lateral thrusters.
+        self.declare_parameter('kp_z', 1.0)
+        self.declare_parameter('ki_z', 0.1)
+        self.declare_parameter('kd_z', 0.05)
+
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
         self.get_logger().warn('setpoint timed out. waiting for new setpoints.')
         self.setpoint_timed_out = True
+        self.reset_pid()
 
     def on_position_setpoint(self, msg: PointStamped):
         self.timeout_timer.reset()
         if self.setpoint_timed_out:
             self.get_logger().info('Setpoint received! Getting back to work.')
+            self.reset_pid()
         self.setpoint_timed_out = False
         self.setpoint = msg.point
+
+    def reset_pid(self):
+        self.last_time = None
+        self.integral_x = 0.0
+        self.integral_y = 0.0
+        self.integral_z = 0.0
+        self.last_error_x = 0.0
+        self.last_error_y = 0.0
+        self.last_error_z = 0.0
 
     def on_pose(self, msg: PoseWithCovarianceStamped):
         if self.setpoint_timed_out:
@@ -52,9 +85,38 @@ class PositionController(Node):
         y_error = self.setpoint.y - position.y
         z_error = self.setpoint.z - position.z
 
-        x = 1.0 * x_error
-        y = 1.0 * y_error
-        z = 1.0 * z_error
+        if self.last_time is None:
+            dt = 0.0
+        else:
+            dt = (now - self.last_time).nanoseconds * 1e-9
+
+        if dt > 0.0:
+            self.integral_x += x_error * dt
+            self.integral_y += y_error * dt
+            self.integral_z += z_error * dt
+            derivative_x = (x_error - self.last_error_x) / dt
+            derivative_y = (y_error - self.last_error_y) / dt
+            derivative_z = (z_error - self.last_error_z) / dt
+        else:
+            derivative_x = 0.0
+            derivative_y = 0.0
+            derivative_z = 0.0
+
+        kp_xy = self.get_parameter('kp_xy').value
+        ki_xy = self.get_parameter('ki_xy').value
+        kd_xy = self.get_parameter('kd_xy').value
+        kp_z = self.get_parameter('kp_z').value
+        ki_z = self.get_parameter('ki_z').value
+        kd_z = self.get_parameter('kd_z').value
+
+        x = kp_xy * x_error + ki_xy * self.integral_x + kd_xy * derivative_x
+        y = kp_xy * y_error + ki_xy * self.integral_y + kd_xy * derivative_y
+        z = kp_z * z_error + ki_z * self.integral_z + kd_z * derivative_z
+
+        self.last_time = now
+        self.last_error_x = x_error
+        self.last_error_y = y_error
+        self.last_error_z = z_error
 
         msg = ActuatorSetpoint()
         msg.header.stamp = now.to_msg()
