@@ -62,8 +62,9 @@ class PathPlanner(Node):
         self.init_clients()
         self.init_services()
         self._control_timer = self.create_timer(0.1, self.control_timer_cb)
-        self._measurement_timer = self.create_timer(2.0,
-                                                    self._trigger_measurement)
+        self._measurement_timer = self.create_timer(
+            self.get_parameter('measurement_period_s').value,
+            self._trigger_measurement)
 
     # ------------------------------------------------------------------
     # Algorithm parameters
@@ -90,7 +91,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 5.0)
+        self.declare_parameter('planning_time_s', 2.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -104,11 +105,15 @@ class PathPlanner(Node):
         self.declare_parameter('start_y', 0.45)
         self.declare_parameter('start_yaw', 0.0)
 
-        self.declare_parameter('execution_horizon_m', 0.5)
+        self.declare_parameter('execution_horizon_m', 0.4)
 
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
         self.declare_parameter('replan_timeout_s', 30.0)
+
+        # Period (s) between IR measurement triggers while executing a path.
+        # 0.2 s = 5 Hz.
+        self.declare_parameter('measurement_period_s', 0.2)
 
     # ------------------------------------------------------------------
     # ROS connections setup
@@ -321,7 +326,7 @@ class PathPlanner(Node):
             self._planning_active = False
 
     def _trigger_measurement(self):
-        if self.state == State.IDLE:
+        if self.state != State.EXECUTING:
             return
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
