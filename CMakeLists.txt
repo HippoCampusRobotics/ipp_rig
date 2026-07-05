@@ -20,6 +20,7 @@ install(PROGRAMS
   nodes/position_controller.py
   nodes/yaw_controller.py
   nodes/rig_tree.py
+  nodes/lawnmower.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

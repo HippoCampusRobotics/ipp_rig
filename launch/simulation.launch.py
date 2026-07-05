@@ -22,6 +22,12 @@ def generate_launch_description():
             default_value='false',
             description='Start the Gazebo GUI. Otherwise runs headless.',
         ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'planner',
+            default_value='rig',
+            description="Path planner to run: 'rig' or 'lawnmower' baseline.",
+        ))
 
     scalar_field_sim_path = get_package_share_path('scalar_field_sim')
     scalar_field_belief_path = get_package_share_path('scalar_field_belief')
@@ -71,6 +77,7 @@ def generate_launch_description():
     ############################################################################
     args = LaunchArgsDict()
     args.add('vehicle_name')
+    args.add('planner')
     args['use_sim_time'] = 'true'
     launch_description.add_action(
         IncludeLaunchDescription(

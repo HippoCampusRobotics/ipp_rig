@@ -23,6 +23,15 @@ def generate_launch_description() -> LaunchDescription:
                     'Leave empty to run without obstacles.',
     ))
 
+    launch_description.add_action(DeclareLaunchArgument(
+        'planner',
+        default_value='rig',
+        choices=['rig', 'lawnmower'],
+        description="Path planner mode: 'rig' (RIG-tree) or 'lawnmower' "
+                    '(non-informative coverage baseline). Forwarded to '
+                    "path_planner.py's 'planner_type' parameter.",
+    ))
+
     package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
 
@@ -45,7 +54,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
 
         ########################################################################
-        # PATH PLANNER
+        # PATH PLANNER (RIG-tree or lawnmower baseline, selected by 'planner')
         ########################################################################
         Node(
             executable='path_planner.py',
@@ -55,6 +64,7 @@ def generate_launch_description() -> LaunchDescription:
                                     default=mapping_params_file_path),
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
+                    'planner_type': LaunchConfiguration('planner'),
                 },
             ],
         ),

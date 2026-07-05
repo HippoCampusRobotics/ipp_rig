@@ -4,6 +4,7 @@ import math
 import sys
 import threading
 from enum import Enum, auto
+from math import pi
 
 import numpy as np
 import rclpy
@@ -18,9 +19,10 @@ from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from visualization_msgs.msg import Marker
 
-# Tells Python to look for rig_tree.py in the same directory as this file.
+# Tells Python to look for rig_tree.py/lawnmower.py in the same directory as this file.
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from rig_tree import RIGTree
+from lawnmower import generate_lawnmower_path
 
 
 class State(Enum):
@@ -36,7 +38,12 @@ def occupancy_grid_to_matrix(grid: OccupancyGrid):
 
 
 class PathPlanner(Node):
-    """Receding-horizon IPP node. Plans with RIG-tree and replans when the path end is reached."""
+    """Receding-horizon IPP node. Plans with RIG-tree and replans when the path end is reached.
+
+    Set the 'planner_type' parameter to 'lawnmower' to instead run a
+    non-informative lawnmover coverage planner as a baseline: it is computed
+    once and sent in full (no replanning), see lawnmower.py.
+    """
 
     def __init__(self):
         super().__init__(node_name='path_planner')
@@ -71,6 +78,12 @@ class PathPlanner(Node):
     # ------------------------------------------------------------------
 
     def _declare_parameters(self):
+        # 'rig' (RIG-tree) or 'lawnmower' (non-informative coverage baseline).
+        self.declare_parameter('planner_type', 'rig')
+
+        # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
+        self.declare_parameter('lane_spacing', 0.3)
+
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
@@ -103,7 +116,7 @@ class PathPlanner(Node):
         self.declare_parameter('robot_z', -0.5)
         self.declare_parameter('start_x', 0.45)
         self.declare_parameter('start_y', 0.45)
-        self.declare_parameter('start_yaw', 0.0)
+        self.declare_parameter('start_yaw', pi / 2.0)
 
         self.declare_parameter('execution_horizon_m', 0.4)
 
@@ -186,7 +199,8 @@ class PathPlanner(Node):
 
     def serve_start(self, _request, response):
         self.get_logger().info(
-            'Start requested, beginning receding-horizon IPP.')
+            f'Start requested, planner_type={self.get_parameter("planner_type").value}.'
+        )
         self.state = State.PLANNING
         self.trigger_replan()
         response.success = True
@@ -292,7 +306,33 @@ class PathPlanner(Node):
                 return
             self._planning_active = True
 
-        threading.Thread(target=self.run_planning, daemon=True).start()
+        if self.get_parameter('planner_type').value == 'lawnmower':
+            # Cheap geometry, no need for a background thread.
+            self.run_lawnmower_planning()
+        else:
+            threading.Thread(target=self.run_planning, daemon=True).start()
+
+    def run_lawnmower_planning(self):
+        x_start = np.array([
+            self.get_parameter('start_x').value,
+            self.get_parameter('start_y').value,
+        ])
+        height, width = self.occupancy_matrix.shape
+
+        path = generate_lawnmower_path(
+            x_start=x_start,
+            x_max=width * self.cell_size,
+            y_max=height * self.cell_size,
+            lane_spacing=self.get_parameter('lane_spacing').value,
+            waypoint_spacing=self.get_parameter('delta').value,
+        )
+        self.get_logger().info(
+            f'Lawnmower coverage path with {len(path)} waypoints.')
+
+        with self._lock:
+            self._pending_path = path
+            self._new_path_ready = True
+            self._planning_active = False
 
     def run_planning(self):
         pose = self.current_pose
@@ -463,13 +503,18 @@ class PathPlanner(Node):
                          (pos.y - self._path_end[1])**2)
 
         if dist < self.get_parameter('goal_tolerance').value:
-            self.get_logger().info('Path end reached, replanning.')
-            self.state = State.PLANNING
-            self.trigger_replan()
+            if self.get_parameter('planner_type').value == 'lawnmower':
+                self.get_logger().info('Lawnmower coverage finished.')
+                self.do_stop()
+            else:
+                self.get_logger().info('Path end reached, replanning.')
+                self.state = State.PLANNING
+                self.trigger_replan()
             return
 
-        # Secondary condition (not paper-conform, practical fallback):
-        #   Robot is stuck and never gets close enough to goal_tolerance.
+        if self.get_parameter('planner_type').value == 'lawnmower':
+            return
+
         elapsed = self.get_clock().now(
         ).nanoseconds * 1e-9 - self._last_replan_time
         if elapsed > self.get_parameter('replan_timeout_s').value:
@@ -494,14 +539,22 @@ class PathPlanner(Node):
         return path
 
     def send_path(self, path: list):
-        """Sends only the execution-horizon slice of the planned path to path_follower."""
+        """Sends the planned path to path_follower.
+
+        RIG-tree paths are truncated to the execution horizon (receding-horizon
+        replanning). The lawnmower path is a one-time full-coverage path, so
+        it is sent in its entirety instead.
+        """
         if not path:
-            self.get_logger().warn('Empty path from RIG-tree, retrying.')
+            self.get_logger().warn('Empty path, retrying.')
             self.state = State.PLANNING
             return
 
-        exec_horizon = self.get_parameter('execution_horizon_m').value
-        executed_path = self._truncate_path_to_distance(path, exec_horizon)
+        if self.get_parameter('planner_type').value == 'lawnmower':
+            executed_path = path
+        else:
+            exec_horizon = self.get_parameter('execution_horizon_m').value
+            executed_path = self._truncate_path_to_distance(path, exec_horizon)
 
         ros_path = self.rig_path_to_ros(executed_path)
         req = SetPath.Request()
@@ -514,8 +567,7 @@ class PathPlanner(Node):
 
         self.publish_path_marker(path)
         self.get_logger().info(
-            f'Executing {len(executed_path)} of {len(path)} waypoints '
-            f'(execution_horizon={exec_horizon:.2f} m).')
+            f'Executing {len(executed_path)} of {len(path)} waypoints.')
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""

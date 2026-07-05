@@ -35,11 +35,15 @@ Optional arguments:
 |---|---|---|
 | `vehicle_name` | `bluerov00` | Names the spawned BlueROV in Gazebo and sets the ROS namespace for all topics and services (the BlueROV model is hardcoded) |
 | `scenario` | _(empty)_ | Obstacle layout to load (e.g. `scenario_1`). Leave empty for a free tank. |
+| `planner` | `rig` | `rig` (RIG-tree) or `lawnmower` (non-informative coverage baseline). Sets `path_planner.py`'s `planner_type` parameter; there is only ever one planner node. |
 | `start_gui` | `false` | Show the Gazebo GUI. Runs headless by default. |
 
 ```bash
 # for instance with scenario 1 obstacles and Gazebo GUI:
 ros2 launch ipp simulation.launch.py scenario:=scenario_1 start_gui:=true
+
+# run the lawnmower baseline instead of RIG-tree:
+ros2 launch ipp simulation.launch.py planner:=lawnmower
 ```
 
 RViz launches automatically alongside Gazebo.
@@ -76,7 +80,9 @@ config/scenario_3.yaml
 ```text
 nodes/
   rig_tree.py            — RIG-tree algorithm (Hollinger & Sukhatme 2014, Alg. 2)
-  path_planner.py        — receding-horizon planning loop (RIG-tree to path_follower)
+  lawnmower.py           — serpentine coverage path generator (non-informative baseline)
+  path_planner.py        — planner node; planner_type='rig' (receding-horizon RIG-tree)
+                           or 'lawnmower' (one-shot coverage sweep)
   path_follower.py       — pure-pursuit waypoint follower
   mapper.py              — builds occupancy grid from obstacles; inflates obstacles by 30 cm
   obstacle_publisher.py  — loads a scenario YAML and publishes polygon obstacles at 10 Hz
