@@ -118,12 +118,20 @@ class PositionController(Node):
         self.last_error_y = y_error
         self.last_error_z = z_error
 
+        thrust_x = math.cos(-yaw) * x - math.sin(-yaw) * y
+        thrust_y = math.sin(-yaw) * x + math.cos(-yaw) * y
+
+        max_thrust_xy = 0.5
+        thrust_xy_norm = math.hypot(thrust_x, thrust_y)
+        if thrust_xy_norm > max_thrust_xy:
+            scale = max_thrust_xy / thrust_xy_norm
+            thrust_x *= scale
+            thrust_y *= scale
+
         msg = ActuatorSetpoint()
         msg.header.stamp = now.to_msg()
-        msg.x = math.cos(-yaw) * x - math.sin(-yaw) * y
-        msg.x = min(0.5, max(-0.5, msg.x))
-        msg.y = math.sin(-yaw) * x + math.cos(-yaw) * y
-        msg.y = min(0.5, max(-0.5, msg.y))
+        msg.x = thrust_x
+        msg.y = thrust_y
         msg.z = z
 
         self.thrust_pub.publish(msg)
