@@ -38,15 +38,15 @@ class PositionController(Node):
 
     def _declare_parameters(self):
         # PID gains for the horizontal (x/y) axes, applied in the vehicle frame.
-        self.declare_parameter('kp_xy', 10.0)
-        self.declare_parameter('ki_xy', 1.0)
-        self.declare_parameter('kd_xy', 5.0)
+        self.declare_parameter('kp_xy', 2.0)
+        self.declare_parameter('ki_xy', 0.1)
+        self.declare_parameter('kd_xy', 2.0)
 
         # PID gains for the vertical (z/depth) axis, tuned separately since
         # buoyancy makes the depth response different from the lateral thrusters.
-        self.declare_parameter('kp_z', 3.0)
+        self.declare_parameter('kp_z', 2.0)
         self.declare_parameter('ki_z', 0.1)
-        self.declare_parameter('kd_z', 3.0)
+        self.declare_parameter('kd_z', 2.0)
 
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
