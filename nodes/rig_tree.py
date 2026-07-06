@@ -2,6 +2,7 @@
 
 import math
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -146,17 +147,25 @@ class RIGTree:
     # Algorithm 2 main loop
     # ------------------------------------------------------------------
 
-    def run(self, planning_time_s: float = 1.0) -> dict:
-        """Anytime algorithm: runs until the time limit expires ("while not terminated" in the paper).
+    def run(self,
+            planning_time_s: Optional[float] = 1.0,
+            cancel_event: Optional[threading.Event] = None) -> dict:
+        """Anytime algorithm: runs until stopped ("while not terminated" in the paper).
+
+        Stops when cancel_event is set, or when planning_time_s elapses.
+        Pass planning_time_s=None to run with no time limit at all.
 
         Returns a stats dict: iterations, elapsed_s, saturated (True = tree exhausted before deadline).
         """
-        deadline = time.monotonic() + planning_time_s
+        deadline = (time.monotonic() +
+                    planning_time_s if planning_time_s is not None else
+                    float('inf'))
         t_start = time.monotonic()
         iterations = 0
         nodes_added = 0
         gp_calls = 0
-        while time.monotonic() < deadline:
+        while (cancel_event is None
+               or not cancel_event.is_set()) and time.monotonic() < deadline:
             iterations += 1
             nodes_before = len(self.nodes)
             # Open nodes are those not yet closed by the planning horizon
@@ -235,6 +244,10 @@ class RIGTree:
             'nodes': len(self.nodes),
             'closed': len(self.closed),
             'gp_calls': gp_calls,
+            'stopped_reason':
+            'cancelled' if
+            (cancel_event is not None and cancel_event.is_set()) else
+            'deadline',
         }
 
     # ------------------------------------------------------------------

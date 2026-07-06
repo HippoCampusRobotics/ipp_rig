@@ -61,6 +61,7 @@ class PathPlanner(Node):
         self._new_path_ready: bool = False
         self._path_end: np.ndarray = None
         self._planning_active: bool = False
+        self._planning_cancel_event: threading.Event = None
         self._last_replan_time: float = 0.0
 
         self.init_path_marker()
@@ -87,11 +88,12 @@ class PathPlanner(Node):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 1.5)
+        self.declare_parameter('planning_horizon', 2.0)
+        self.declare_parameter('execution_horizon_m', 1.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.2)
+        self.declare_parameter('delta', 0.3)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
@@ -117,8 +119,6 @@ class PathPlanner(Node):
         self.declare_parameter('start_x', 0.45)
         self.declare_parameter('start_y', 0.45)
         self.declare_parameter('start_yaw', pi / 2.0)
-
-        self.declare_parameter('execution_horizon_m', 0.4)
 
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
@@ -217,6 +217,9 @@ class PathPlanner(Node):
             self._path_end = None
             self._pending_path = None
             self._new_path_ready = False
+            cancel_event = self._planning_cancel_event
+        if cancel_event is not None:
+            cancel_event.set()
         self.publish_path_marker([])
         try:
             future = self.path_finished_client.call_async(Trigger.Request())
@@ -305,12 +308,16 @@ class PathPlanner(Node):
                     throttle_duration_sec=2.0)
                 return
             self._planning_active = True
+            cancel_event = threading.Event()
+            self._planning_cancel_event = cancel_event
 
         if self.get_parameter('planner_type').value == 'lawnmower':
             # Cheap geometry, no need for a background thread.
             self.run_lawnmower_planning()
         else:
-            threading.Thread(target=self.run_planning, daemon=True).start()
+            threading.Thread(target=self.run_planning,
+                             args=(cancel_event, ),
+                             daemon=True).start()
 
     def run_lawnmower_planning(self):
         x_start = np.array([
@@ -334,9 +341,21 @@ class PathPlanner(Node):
             self._new_path_ready = True
             self._planning_active = False
 
-    def run_planning(self):
-        pose = self.current_pose
-        x_start = np.array([pose.position.x, pose.position.y])
+    def run_planning(self, cancel_event: threading.Event):
+        # x_start is where the robot will start the next segment, i.e. the
+        # end of the segment it is currently driving. Only the cold-start
+        # cycle (no segment executed yet) has no _path_end and uses the live
+        # pose instead.
+        with self._lock:
+            path_end = self._path_end
+        if path_end is not None:
+            x_start = np.array(path_end)
+            # No time ceiling here, cancel_event is the only stop signal.
+            planning_time_s = None
+        else:
+            pose = self.current_pose
+            x_start = np.array([pose.position.x, pose.position.y])
+            planning_time_s = self.get_parameter('planning_time_s').value
         grid = self.occupancy_matrix.copy()
 
         self.get_logger().info(
@@ -352,10 +371,11 @@ class PathPlanner(Node):
             resolution=self.cell_size,
             batch_info_fn=self.make_batch_info_fn(),
         )
-        stats = tree.run(
-            planning_time_s=self.get_parameter('planning_time_s').value)
+        stats = tree.run(planning_time_s=planning_time_s,
+                         cancel_event=cancel_event)
         self.get_logger().info(
-            f'Planning done: {stats["iterations"]} iterations in {stats["elapsed_s"]:.2f} s, '
+            f'Planning done ({stats["stopped_reason"]}): {stats["iterations"]} iterations '
+            f'in {stats["elapsed_s"]:.2f} s, '
             f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed), '
             f'{stats["gp_calls"]} belief covariance calls')
         path = tree.best_path()
@@ -366,7 +386,7 @@ class PathPlanner(Node):
             self._planning_active = False
 
     def _trigger_measurement(self):
-        if self.state != State.EXECUTING:
+        if self.state == State.IDLE:
             return
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
@@ -507,9 +527,7 @@ class PathPlanner(Node):
                 self.get_logger().info('Lawnmower coverage finished.')
                 self.do_stop()
             else:
-                self.get_logger().info('Path end reached, replanning.')
-                self.state = State.PLANNING
-                self.trigger_replan()
+                self._end_segment_and_replan('Path end reached')
             return
 
         if self.get_parameter('planner_type').value == 'lawnmower':
@@ -518,11 +536,27 @@ class PathPlanner(Node):
         elapsed = self.get_clock().now(
         ).nanoseconds * 1e-9 - self._last_replan_time
         if elapsed > self.get_parameter('replan_timeout_s').value:
+            timeout = self.get_parameter('replan_timeout_s').value
+            self._end_segment_and_replan(f'Replan timeout ({timeout} s)')
+
+    def _end_segment_and_replan(self, reason: str):
+        """If a plan for the next segment is already running, cancel it so
+        it returns its best-so-far path now. Otherwise, Task 2 above starts
+        a fresh one on the next tick since state is now PLANNING.
+        """
+        with self._lock:
+            active = self._planning_active
+            cancel_event = self._planning_cancel_event
+        self.state = State.PLANNING
+        if active:
+            self.get_logger().info(
+                f'{reason}: aborting in-flight planning for handoff.',
+                throttle_duration_sec=2.0)
+            cancel_event.set()
+        else:
             self.get_logger().warn(
-                f'Replan timeout ({self.get_parameter("replan_timeout_s").value} s),'
-                ' forcing replan.')
-            self.state = State.PLANNING
-            self.trigger_replan()
+                f'{reason}: no plan in flight, waiting for retry.',
+                throttle_duration_sec=2.0)
 
     def _truncate_path_to_distance(self, path: list, max_dist: float) -> list:
         """Cuts path short so the robot travels at most max_dist meters along it."""
@@ -568,6 +602,10 @@ class PathPlanner(Node):
         self.publish_path_marker(path)
         self.get_logger().info(
             f'Executing {len(executed_path)} of {len(path)} waypoints.')
+
+        # Start planning the next segment now, while this one is driven.
+        if self.get_parameter('planner_type').value != 'lawnmower':
+            self.trigger_replan()
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""
