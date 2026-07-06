@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import random
 import sys
 import threading
 from enum import Enum, auto
@@ -89,6 +90,13 @@ class PathPlanner(Node):
         # or 'random' (RIG-tree without variance information, i.e. a random walk).
         self.declare_parameter('planner_type', 'rig')
 
+        # Seeds Python's random module (used by RIGTree.Sample()) once at
+        # mission start. -1 (default) leaves the RNG unseeded. Set the same
+        # non-negative seed across a rig/random comparison run to make the
+        # planners see the same sequence of sample draws for a fair,
+        # reproducible comparison.
+        self.declare_parameter('rng_seed', -1)
+
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
         self.declare_parameter('lane_spacing', 0.3)
 
@@ -96,7 +104,7 @@ class PathPlanner(Node):
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
         self.declare_parameter('planning_horizon', 2.0)
-        self.declare_parameter('execution_horizon_m', 1.0)
+        self.declare_parameter('execution_horizon_m', 2.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -208,6 +216,10 @@ class PathPlanner(Node):
         self.get_logger().info(
             f'Start requested, planner_type={self.get_parameter("planner_type").value}.'
         )
+        rng_seed = self.get_parameter('rng_seed').value
+        if rng_seed >= 0:
+            random.seed(rng_seed)
+            self.get_logger().info(f'Seeded RNG with rng_seed={rng_seed}.')
         self.state = State.PLANNING
         self.trigger_replan()
         response.success = True

@@ -1,5 +1,6 @@
 from ament_index_python.packages import get_package_share_path
 from launch_ros.actions import Node, PushROSNamespace
+from launch_ros.parameter_descriptions import ParameterValue
 from launch.conditions import IfCondition, UnlessCondition
 
 from launch import LaunchDescription
@@ -31,6 +32,14 @@ def generate_launch_description() -> LaunchDescription:
                     "(non-informative coverage baseline), or 'random' "
                     '(RIG-tree without variance information). Forwarded to '
                     "path_planner.py's 'planner_type' parameter.",
+    ))
+
+    launch_description.add_action(DeclareLaunchArgument(
+        'rng_seed',
+        default_value='-1',
+        description='Seed for the RIG-tree Sample() RNG, forwarded to '
+                    "path_planner.py's 'rng_seed' parameter. -1 leaves it "
+                    'unseeded.',
     ))
 
     package_path = get_package_share_path('ipp')
@@ -66,6 +75,8 @@ def generate_launch_description() -> LaunchDescription:
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
                     'planner_type': LaunchConfiguration('planner'),
+                    'rng_seed': ParameterValue(
+                        LaunchConfiguration('rng_seed'), value_type=int),
                 },
             ],
         ),

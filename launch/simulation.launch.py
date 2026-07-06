@@ -29,6 +29,13 @@ def generate_launch_description():
             description="Path planner to run: 'rig', 'lawnmower' baseline, "
                         "or 'random' baseline.",
         ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'rng_seed',
+            default_value='-1',
+            description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
+                        'unseeded.',
+        ))
 
     scalar_field_sim_path = get_package_share_path('scalar_field_sim')
     scalar_field_belief_path = get_package_share_path('scalar_field_belief')
@@ -79,6 +86,7 @@ def generate_launch_description():
     args = LaunchArgsDict()
     args.add('vehicle_name')
     args.add('planner')
+    args.add('rng_seed')
     args['use_sim_time'] = 'true'
     launch_description.add_action(
         IncludeLaunchDescription(
