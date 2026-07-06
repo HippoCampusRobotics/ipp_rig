@@ -43,6 +43,12 @@ class PathPlanner(Node):
     Set the 'planner_type' parameter to 'lawnmower' to instead run a
     non-informative lawnmover coverage planner as a baseline: it is computed
     once and sent in full (no replanning), see lawnmower.py.
+
+    Set 'planner_type' to 'random' to run the same RIG-tree receding-horizon
+    loop (same control, obstacle avoidance, horizon/replanning behaviour) but
+    without any variance information: candidate nodes get a uniform info
+    increment instead of a GP covariance query, so the path is effectively a
+    random walk within the tank.
     """
 
     def __init__(self):
@@ -79,7 +85,8 @@ class PathPlanner(Node):
     # ------------------------------------------------------------------
 
     def _declare_parameters(self):
-        # 'rig' (RIG-tree) or 'lawnmower' (non-informative coverage baseline).
+        # 'rig' (RIG-tree), 'lawnmower' (non-informative coverage baseline),
+        # or 'random' (RIG-tree without variance information, i.e. a random walk).
         self.declare_parameter('planner_type', 'rig')
 
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
@@ -362,6 +369,7 @@ class PathPlanner(Node):
             f'Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), '
             f'horizon={self.get_parameter("planning_horizon").value} m ...')
 
+        is_random = self.get_parameter('planner_type').value == 'random'
         tree = RIGTree(
             delta=self.get_parameter('delta').value,
             planning_horizon=self.get_parameter('planning_horizon').value,
@@ -369,7 +377,7 @@ class PathPlanner(Node):
             R=self.get_parameter('near_radius').value,
             grid=grid,
             resolution=self.cell_size,
-            batch_info_fn=self.make_batch_info_fn(),
+            batch_info_fn=None if is_random else self.make_batch_info_fn(),
         )
         stats = tree.run(planning_time_s=planning_time_s,
                          cancel_event=cancel_event)

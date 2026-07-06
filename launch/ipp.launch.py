@@ -26,9 +26,10 @@ def generate_launch_description() -> LaunchDescription:
     launch_description.add_action(DeclareLaunchArgument(
         'planner',
         default_value='rig',
-        choices=['rig', 'lawnmower'],
-        description="Path planner mode: 'rig' (RIG-tree) or 'lawnmower' "
-                    '(non-informative coverage baseline). Forwarded to '
+        choices=['rig', 'lawnmower', 'random'],
+        description="Path planner mode: 'rig' (RIG-tree), 'lawnmower' "
+                    "(non-informative coverage baseline), or 'random' "
+                    '(RIG-tree without variance information). Forwarded to '
                     "path_planner.py's 'planner_type' parameter.",
     ))
 

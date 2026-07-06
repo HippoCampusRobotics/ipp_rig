@@ -26,7 +26,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'planner',
             default_value='rig',
-            description="Path planner to run: 'rig' or 'lawnmower' baseline.",
+            description="Path planner to run: 'rig', 'lawnmower' baseline, "
+                        "or 'random' baseline.",
         ))
 
     scalar_field_sim_path = get_package_share_path('scalar_field_sim')
