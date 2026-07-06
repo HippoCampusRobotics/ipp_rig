@@ -79,13 +79,16 @@ class RIGTree:
     # ------------------------------------------------------------------
 
     def _sample(self) -> np.ndarray:
-        r = self.planning_horizon * math.sqrt(random.random())
-        theta = random.uniform(0.0, 2 * math.pi)
-        x = float(
-            np.clip(self.x_start[0] + r * math.cos(theta), 0.0, self.x_max))
-        y = float(
-            np.clip(self.x_start[1] + r * math.sin(theta), 0.0, self.y_max))
-        return np.array([x, y])
+        """Sample(): uniform in the disk of radius B around x_start,
+        rejecting draws that land outside the tank."""
+        for _ in range(100):  #100 trys until it lands in tank
+            r = self.planning_horizon * math.sqrt(random.random())
+            theta = random.uniform(0.0, 2 * math.pi)
+            x = self.x_start[0] + r * math.cos(theta)
+            y = self.x_start[1] + r * math.sin(theta)
+            if 0.0 <= x <= self.x_max and 0.0 <= y <= self.y_max:
+                return np.array([x, y])
+        return self.x_start.copy()  # fallback, should not normally happen
 
     def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
         """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most Delta."""
