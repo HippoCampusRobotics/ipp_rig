@@ -47,6 +47,18 @@ def occupancy_grid_to_matrix(grid: OccupancyGrid):
     return data.reshape(grid.info.height, grid.info.width)
 
 
+def _solve_with_relative_jitter(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Solves a @ x = b, adding a tiny value to a's diagonal first so it stays
+    invertible. The tiny value scales with a's own values instead of being a
+    fixed number: covariance values can be very small close to already-dense
+    measurements and much bigger in unexplored areas, so a fixed value could
+    end up too large and wash out the real signal in the small case.
+    """
+    scale = max(float(np.mean(np.diag(a))), 1e-12) if a.size else 1e-12
+    jitter = scale * 1e-6 * np.eye(a.shape[0])
+    return np.linalg.solve(a + jitter, b)
+
+
 class PathPlanner(Node):
     """Receding-horizon IPP node. Plans with RIG-tree and replans when the path end is reached.
 
@@ -124,7 +136,7 @@ class PathPlanner(Node):
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.2)
+        self.declare_parameter('delta', 0.3)
 
         # Maximum heading change (rad) Steer() allows per delta step. Not
         # derived from vehicle kinematics: the control stack is a decoupled,
@@ -164,6 +176,12 @@ class PathPlanner(Node):
         # Period (s) between IR measurement triggers while executing a path.
         # 0.2 s = 5 Hz.
         self.declare_parameter('measurement_period_s', 0.2)
+
+        # Points per axis for the fixed grid used to score how informative a
+        # candidate path is (grid size is info_grid_resolution^2). Bigger
+        # grid = more accurate info score but slower, since every RIG-tree
+        # iteration queries all grid points together with the candidates.
+        self.declare_parameter('info_grid_resolution', 15)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
@@ -487,6 +505,10 @@ class PathPlanner(Node):
 
         self._log_measurement_cycle(x_start)
 
+        # Grid for scoring information this cycle: built once here and
+        # reused for every candidate the tree scores.
+        info_grid_points = self._build_info_grid()
+
         is_random = self.get_parameter('planner_type').value == 'random'
         tree = RIGTree(
             delta=self.get_parameter('delta').value,
@@ -497,7 +519,8 @@ class PathPlanner(Node):
             resolution=self.cell_size,
             theta_start=theta_start,
             max_turn_angle=self.get_parameter('max_turn_angle').value,
-            batch_info_fn=None if is_random else self.make_batch_info_fn(),
+            batch_info_fn=None
+            if is_random else self.make_batch_info_fn(info_grid_points),
         )
         stats = tree.run(planning_time_s=planning_time_s,
                          cancel_event=cancel_event)
@@ -521,18 +544,51 @@ class PathPlanner(Node):
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
 
-    def make_batch_info_fn(self):
-        """Returns a function that queries GP covariance for a batch of
-        candidate paths in one call, and turns it into path-conditioned
-        entropy increments (Conditional Entropy from Krause et al. 2008, Eq. 5) added to the parent's
-        accumulated information in rig_tree.run(). Returns None if the
-        service is not ready; rig_tree then falls back to uniform +1 per step.
+    def _build_info_grid(self) -> list:
+        """Builds the fixed grid of points used to score how informative a
+        path is. Spread evenly over the whole tank, independent of any
+        path. Rebuilt once at the start of each planning cycle in
+        run_planning() and then reused for every candidate scored in that
+        cycle.
+        """
+        n = self.get_parameter('info_grid_resolution').value
+        height, width = self.occupancy_matrix.shape
+        x_max = width * self.cell_size
+        y_max = height * self.cell_size
+        xs = np.linspace(0.0, x_max, n)
+        ys = np.linspace(0.0, y_max, n)
+        xx, yy = np.meshgrid(xs, ys)
+        return [np.array([x, y]) for x, y in zip(xx.ravel(), yy.ravel())]
+
+    def make_batch_info_fn(self, grid_points: list):
+        """Returns a function that scores a batch of candidate paths in one
+        belief query, giving each one an information value that gets added
+        to its parent's value in rig_tree.run(). Returns None if the belief
+        service isn't ready, in which case rig_tree falls back to giving
+        every step a value of 1.
+
+        grid_points is the fixed grid built in _build_info_grid: every
+        candidate in this planning cycle is compared against the same grid,
+        so a path's score is how much uncertainty it removes from the whole
+        tank, not just compared to its own ancestors.
         """
         if not self.belief_covariance_client.service_is_ready():
             self.get_logger().warn(
                 'Belief covariance service not ready, using uniform information.'
             )
             return None
+
+        n_grid = len(grid_points)
+        # Grid queries are identical on every call this cycle, so build
+        # them once and only append the (cheap, per-call) path-point
+        # queries below.
+        grid_query_poses = []
+        for pos in grid_points:
+            ps = PoseStamped()
+            ps.header.frame_id = 'map'
+            ps.pose.position.x = float(pos[0])
+            ps.pose.position.y = float(pos[1])
+            grid_query_poses.append(ps)
 
         def batch_info_fn(paths: list) -> list:
             # Candidates often share earlier points on their path (e.g. two
@@ -552,10 +608,12 @@ class PathPlanner(Node):
                     query_points.append(pos)
                 return idx
 
-            # Each candidate's path, translated into point numbers.
+            # Each candidate's path, translated into point numbers (0-based
+            # within query_points, i.e. excluding the grid block below).
             candidate_indices = [[get_index(p) for p in path] for path in paths]
 
             request = QueryScalarFieldBeliefCovariance.Request()
+            request.queries.extend(grid_query_poses)
             for pos in query_points:
                 ps = PoseStamped()
                 ps.header.frame_id = 'map'
@@ -570,39 +628,46 @@ class PathPlanner(Node):
             if not event.wait(timeout=1.0):
                 return [1.0] * len(paths)  # Fallback, just put 1 for every path
             result = future.result()
-            n = len(query_points)
+            n = n_grid + len(query_points)
             if (result is None or not result.success
                     or len(result.covariance_matrix) != n * n):
                 return [1.0] * len(paths)  # Fallback, just put 1 for every path
 
             # reshape flat list that the ROS2 service sends into the proper matrix
             cov = np.array(result.covariance_matrix).reshape(n, n)
+            # Covariance between grid points and path points, and between
+            # path points themselves. We don't need the grid-grid block: it's
+            # the same for every candidate in this call, so it cancels out of
+            # the increment below.
+            c_g_all = cov[:n_grid, n_grid:]  # (M, K)
+            c_xx_all = cov[n_grid:, n_grid:]  # (K, K)
 
-            # Each candidate's own new point is always last in its index
-            # list, so sub[:-1, :-1] is the ancestor-ancestor block (K_AA),
-            # sub[:-1, -1] is ancestor-to-new-point (K_Ay), and sub[-1, -1]
-            # is the new point's own variance (K_yy).
+            def trace_reduction(idx: list) -> float:
+                """How much total grid uncertainty is removed by knowing the
+                points at idx, on top of the real measurements already in
+                the belief. idx indexes into query_points."""
+                if not idx:
+                    return 0.0
+                c_gx = c_g_all[:, idx]  # (M, |idx|)
+                c_xx = c_xx_all[np.ix_(idx, idx)]  # (|idx|, |idx|)
+                y = _solve_with_relative_jitter(c_xx, c_gx.T)  # (|idx|, M)
+                return float(np.sum(c_gx * y.T))
+
+            # Increment = additional grid-trace reduction gained by adding
+            # the candidate's own new point (last in idx) on top of its
+            # ancestors (idx[:-1]). Always >= 0 by construction (Schur
+            # complement of a PSD matrix: conditioning never increases
+            # variance), so it slots into node.info = parent.info +
+            # increment without changing that accumulation logic. Unlike
+            # entropy/log-det, A-optimal trace reduction is not a strictly
+            # submodular set function, but for smooth spatial kernels it
+            # exhibits the same diminishing-returns behaviour in practice.
             info_increments = []
             for idx in candidate_indices:
-                sub = cov[np.ix_(idx, idx)]
-                if len(idx) == 1:
-                    # No ancestors yet (candidate extends directly from the
-                    # root): conditional variance is just the plain variance.
-                    sigma2_cond = sub[0, 0]
-                else:
-                    k_aa = sub[:-1, :-1]
-                    k_ay = sub[:-1, -1]
-                    k_yy = sub[-1, -1]
-                    # Jitter keeps K_AA invertible even if two ancestors
-                    # are almost the same position.
-                    jitter = 1e-9 * np.eye(len(idx) - 1)
-                    sigma2_cond = k_yy - k_ay @ np.linalg.solve(
-                        k_aa + jitter, k_ay)
-                # Clamp above zero: rounding error could otherwise send
-                # this slightly negative, which log() can't handle.
-                sigma2_cond = max(float(sigma2_cond), 1e-12)
-                info_increments.append(
-                    0.5 * math.log(2 * math.pi * math.e * sigma2_cond))
+                reduction_with_new_point = trace_reduction(idx)
+                reduction_ancestors_only = trace_reduction(idx[:-1])
+                increment = reduction_with_new_point - reduction_ancestors_only
+                info_increments.append(max(increment, 0.0))
             self._log_info_increments(np.array(info_increments))
             return info_increments
 
