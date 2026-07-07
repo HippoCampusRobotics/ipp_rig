@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+import math
+
 import rclpy
 from geometry_msgs.msg import (
+    Point,
     PointStamped,
     Pose,
     PoseStamped,
@@ -76,30 +79,65 @@ class PathFollower(Node):
             self.path_pub.publish(msg)
 
     def update_setpoint(self, current_pose: Pose):
-        current_position = current_pose.position
-        index = self.target_index
-        look_ahead_square = self.look_ahead_distance**2
         if not self.path:
             self.target_index = 0
             self.position_target = None
             self.yaw_target = None
             return False
-        while True:
-            target_position = self.path[index].pose.position
-            d = (current_position.x - target_position.x)**2 + (
-                current_position.y - target_position.y)**2 + (
-                    current_position.z - target_position.z)**2
-            if look_ahead_square <= d:
-                self.target_index = index
-                break
-            index += 1
-            if index >= len(self.path):
-                self.target_index = len(self.path) - 1
-                break
-        target_pose = self.path[self.target_index].pose
-        self.position_target = target_pose.position
-        q = target_pose.orientation
-        _, _, self.yaw_target = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        current_position = current_pose.position
+        r = self.look_ahead_distance
+        n = len(self.path)
+
+        lookahead_point = None
+        for i in range(self.target_index, n - 1):
+            p0 = self.path[i].pose.position
+            p1 = self.path[i + 1].pose.position
+
+            dx = p1.x - p0.x
+            dy = p1.y - p0.y
+            dz = p1.z - p0.z
+            fx = p0.x - current_position.x
+            fy = p0.y - current_position.y
+            fz = p0.z - current_position.z
+
+            a = dx * dx + dy * dy + dz * dz
+            if a < 1e-9:
+                continue
+            b = 2.0 * (fx * dx + fy * dy + fz * dz)
+            c = fx * fx + fy * fy + fz * fz - r * r
+
+            discriminant = b * b - 4.0 * a * c
+            if discriminant < 0.0:
+                continue
+
+            sqrt_disc = math.sqrt(discriminant)
+            t2 = (-b + sqrt_disc) / (2.0 * a)
+            t1 = (-b - sqrt_disc) / (2.0 * a)
+
+            if 0.0 <= t2 <= 1.0:
+                t = t2
+            elif 0.0 <= t1 <= 1.0:
+                t = t1
+            else:
+                continue
+
+            self.target_index = i
+            lookahead_point = Point(x=p0.x + t * dx,
+                                    y=p0.y + t * dy,
+                                    z=p0.z + t * dz)
+            break
+
+        if lookahead_point is None:
+            target_pose = self.path[-1].pose
+            self.position_target = target_pose.position
+            q = target_pose.orientation
+            _, _, self.yaw_target = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            return True
+
+        self.position_target = lookahead_point
+        self.yaw_target = math.atan2(lookahead_point.y - current_position.y,
+                                     lookahead_point.x - current_position.x)
         return True
 
 

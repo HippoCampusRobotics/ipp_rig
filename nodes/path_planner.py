@@ -17,7 +17,7 @@ from ipp_interfaces.srv import SetPath
 from scalar_field_interfaces.srv import QueryScalarFieldBeliefCovariance
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from tf_transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 
 # Tells Python to look for rig_tree.py/lawnmower.py in the same directory as this file.
@@ -108,7 +108,7 @@ class PathPlanner(Node):
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.3)
+        self.declare_parameter('delta', 0.2)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
@@ -273,8 +273,6 @@ class PathPlanner(Node):
                 math.ceil(dist / 0.3) +
                 1)  # waypoints at 0.3 m spacing, at least 2
 
-        o = self.current_pose.orientation
-        current_yaw = euler_from_quaternion([o.x, o.y, o.z, o.w])[2]
         start_yaw = self.get_parameter('start_yaw').value
 
         header = Header()
@@ -282,23 +280,21 @@ class PathPlanner(Node):
         header.frame_id = 'map'
 
         # Straight-line waypoints at 0.3 m spacing
-        # yaw gradually rotates to yaw at start position (interpolation)
         xs = np.linspace(cx, gx, n)
         ys = np.linspace(cy, gy, n)
-        yaws = np.linspace(current_yaw, start_yaw, n)
+
+        q = quaternion_from_euler(0.0, 0.0, float(start_yaw))
+        last_orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
         poses = []
-        for x, y, yaw in zip(xs, ys, yaws):
-            q = quaternion_from_euler(0.0, 0.0, float(yaw))
+        for i, (x, y) in enumerate(zip(xs, ys)):
+            orientation = last_orientation if i == n - 1 else Quaternion()
             poses.append(
                 PoseStamped(header=header,
                             pose=Pose(position=Point(x=float(x),
                                                      y=float(y),
                                                      z=z),
-                                      orientation=Quaternion(x=q[0],
-                                                             y=q[1],
-                                                             z=q[2],
-                                                             w=q[3]))))
+                                      orientation=orientation)))
 
         ros_path = Path()
         ros_path.poses = poses
@@ -637,17 +633,12 @@ class PathPlanner(Node):
 
         points_3d = [Point(x=float(xy[0]), y=float(xy[1]), z=z) for xy in path]
 
-        # Yaw points toward the next waypoint; the last point keeps the same direction.
-        yaws = [
-            math.atan2(path[i + 1][1] - path[i][1], path[i + 1][0] - path[i][0])
-            for i in range(len(path) - 1)
-        ]
-        yaws.append(yaws[-1] if yaws else 0.0)
-
-        orientations = []
-        for yaw in yaws:
-            q = quaternion_from_euler(0.0, 0.0, yaw)
-            orientations.append(Quaternion(x=q[0], y=q[1], z=q[2], w=q[3]))
+        orientations = [Quaternion() for _ in points_3d]
+        if len(path) >= 2:
+            last_yaw = math.atan2(path[-1][1] - path[-2][1],
+                                  path[-1][0] - path[-2][0])
+            q = quaternion_from_euler(0.0, 0.0, last_yaw)
+            orientations[-1] = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
         ros_path = Path()
         ros_path.poses = [

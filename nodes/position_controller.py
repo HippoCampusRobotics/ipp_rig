@@ -38,9 +38,9 @@ class PositionController(Node):
 
     def _declare_parameters(self):
         # PID gains for the horizontal (x/y) axes, applied in the vehicle frame.
-        self.declare_parameter('kp_xy', 2.0)
-        self.declare_parameter('ki_xy', 0.1)
-        self.declare_parameter('kd_xy', 2.0)
+        self.declare_parameter('kp_xy', 1.0)
+        self.declare_parameter('ki_xy', 0.0)
+        self.declare_parameter('kd_xy', 0.0)
 
         # PID gains for the vertical (z/depth) axis, tuned separately since
         # buoyancy makes the depth response different from the lateral thrusters.
@@ -121,7 +121,7 @@ class PositionController(Node):
         thrust_x = math.cos(-yaw) * x - math.sin(-yaw) * y
         thrust_y = math.sin(-yaw) * x + math.cos(-yaw) * y
 
-        max_thrust_xy = 0.5
+        max_thrust_xy = 0.3
         thrust_xy_norm = math.hypot(thrust_x, thrust_y)
         if thrust_xy_norm > max_thrust_xy:
             scale = max_thrust_xy / thrust_xy_norm
