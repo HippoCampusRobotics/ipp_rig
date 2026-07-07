@@ -150,9 +150,8 @@ class RIGTree:
 
         Returns a stats dict: iterations, elapsed_s, saturated (True = tree exhausted before deadline).
         """
-        deadline = (time.monotonic() +
-                    planning_time_s if planning_time_s is not None else
-                    float('inf'))
+        deadline = (time.monotonic() + planning_time_s
+                    if planning_time_s is not None else float('inf'))
         t_start = time.monotonic()
         iterations = 0
         nodes_added = 0
@@ -231,16 +230,21 @@ class RIGTree:
             nodes_added += len(self.nodes) - nodes_before
 
         return {
-            'iterations': iterations,
-            'elapsed_s': time.monotonic() - t_start,
-            'nodes_added': nodes_added,
-            'nodes': len(self.nodes),
-            'closed': len(self.closed),
-            'gp_calls': gp_calls,
+            'iterations':
+            iterations,
+            'elapsed_s':
+            time.monotonic() - t_start,
+            'nodes_added':
+            nodes_added,
+            'nodes':
+            len(self.nodes),
+            'closed':
+            len(self.closed),
+            'gp_calls':
+            gp_calls,
             'stopped_reason':
-            'cancelled' if
-            (cancel_event is not None and cancel_event.is_set()) else
-            'deadline',
+            'cancelled' if (cancel_event is not None and cancel_event.is_set())
+            else 'deadline',
         }
 
     # ------------------------------------------------------------------
@@ -252,9 +256,9 @@ class RIGTree:
         if not self.closed:
             return []
 
-        # key compares mean entropy (info/cost) of closed paths, not the raw index
-        best_idx = max(self.closed,
-                       key=lambda i: self.nodes[i].info / self.nodes[i].cost)
+        # selects absolute information gain (budget constraint is
+        # already enforced by closed-list membership)
+        best_idx = max(self.closed, key=lambda i: self.nodes[i].info)
         idx: Optional[int] = best_idx
 
         # Reconstruct most informativepath by following parent links back to the root
