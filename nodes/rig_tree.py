@@ -207,6 +207,9 @@ class RIGTree:
                 increments = [1.0] * len(candidates)
 
             # Phase 3: build and insert nodes.
+            # kd doesn't see nodes newly added in this loop iteration, so we keep our own
+            # list of them (newly_added) and check them just like prune.
+            newly_added: List[Tuple[np.ndarray, float, float]] = []
             for j, (near_idx, x_new, c_new,
                     path_points) in enumerate(candidates):
                 n_near = self.nodes[near_idx]
@@ -219,10 +222,17 @@ class RIGTree:
                              path_points=path_points)
                 if self._prune(n_new, kd, open_arr):
                     continue
+                if any(
+                        math.hypot(x_new[0] - x_sib[0], x_new[1] -
+                                   x_sib[1]) <= self.delta /
+                        2.0 and i_sib > i_new and c_sib <= c_new
+                        for x_sib, i_sib, c_sib in newly_added):
+                    continue
 
                 new_idx = len(self.nodes)
                 self.nodes.append(n_new)
                 self.edges.append((near_idx, new_idx))
+                newly_added.append((x_new, i_new, c_new))
 
                 if c_new > self.planning_horizon:
                     self.closed.add(new_idx)
