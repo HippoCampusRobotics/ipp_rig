@@ -57,7 +57,6 @@ class RIGTree:
         self.resolution = resolution
         self._batch_info_fn = batch_info_fn
 
-        self.x_start = x_start.copy()
         self.height, self.width = grid.shape
         self.x_max = self.width * resolution
         self.y_max = self.height * resolution
@@ -80,16 +79,10 @@ class RIGTree:
     # ------------------------------------------------------------------
 
     def _sample(self) -> np.ndarray:
-        """Sample(): uniform in the disk of radius B around x_start,
-        rejecting draws that land outside the tank."""
-        for _ in range(100):  #100 trys until it lands in tank
-            r = self.planning_horizon * math.sqrt(random.random())
-            theta = random.uniform(0.0, 2 * math.pi)
-            x = self.x_start[0] + r * math.cos(theta)
-            y = self.x_start[1] + r * math.sin(theta)
-            if 0.0 <= x <= self.x_max and 0.0 <= y <= self.y_max:
-                return np.array([x, y])
-        return self.x_start.copy()  # fallback, should not normally happen
+        """Sample(X_all): uniform over the whole workspace."""
+        x = random.uniform(0.0, self.x_max)
+        y = random.uniform(0.0, self.y_max)
+        return np.array([x, y])
 
     def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
         """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most Delta."""
