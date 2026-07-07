@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
+import csv
+import datetime
 import math
+import os
 import random
 import sys
 import threading
@@ -24,6 +27,12 @@ from visualization_msgs.msg import Marker
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from rig_tree import RIGTree
 from lawnmower import generate_lawnmower_path
+
+# nodes/path_planner.py -> ipp -> src -> workspace root. Both packages are
+# symlink-installed, so __file__ resolves to this source path even when
+# launched from the colcon install space.
+_WORKSPACE_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', '..'))
 
 
 class State(Enum):
@@ -71,6 +80,12 @@ class PathPlanner(Node):
         self._planning_cancel_event: threading.Event = None
         self._last_replan_time: float = 0.0
 
+        # Debugging Variables ----------
+        self._planning_cycle: int = 0
+        self._info_call_idx: int = 0
+        self._init_debug_logs()
+        # ------------------------------
+
         self.init_path_marker()
         self.init_publishers()
         self.init_subscribers()
@@ -103,8 +118,8 @@ class PathPlanner(Node):
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 2.0)
-        self.declare_parameter('execution_horizon_m', 2.0)
+        self.declare_parameter('planning_horizon', 3.0)
+        self.declare_parameter('execution_horizon_m', 3.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -142,6 +157,93 @@ class PathPlanner(Node):
         # Period (s) between IR measurement triggers while executing a path.
         # 0.2 s = 5 Hz.
         self.declare_parameter('measurement_period_s', 0.2)
+
+    # ------------------------------------------------------------------
+    # Debug logging (info-increment / measurement-count / tree checks)
+    # ------------------------------------------------------------------
+
+    def _init_debug_logs(self):
+        run_ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_dir = os.path.join(_WORKSPACE_ROOT, 'debug_logs', 'path_planner',
+                               run_ts)
+        os.makedirs(log_dir, exist_ok=True)
+
+        self._info_csv = csv.writer(
+            open(os.path.join(log_dir, 'info_increments.csv'),
+                 'w',
+                 newline='',
+                 buffering=1))
+        self._info_csv.writerow(
+            ['cycle', 'call_idx', 'n_candidates', 'min', 'max', 'mean', 'std'])
+
+        self._meas_csv = csv.writer(
+            open(os.path.join(log_dir, 'measurement_count.csv'),
+                 'w',
+                 newline='',
+                 buffering=1))
+        self._meas_csv.writerow(
+            ['cycle', 'ros_time_s', 'x_start_x', 'x_start_y'])
+
+        self._tree_csv = csv.writer(
+            open(os.path.join(log_dir, 'tree_stats.csv'),
+                 'w',
+                 newline='',
+                 buffering=1))
+        self._tree_csv.writerow([
+            'cycle', 'n_nodes', 'n_closed', 'best_info', 'closed_info_min',
+            'closed_info_max', 'closed_info_mean', 'closed_info_std'
+        ])
+
+        self._path_csv = csv.writer(
+            open(os.path.join(log_dir, 'best_path.csv'),
+                 'w',
+                 newline='',
+                 buffering=1))
+        self._path_csv.writerow(['cycle', 'point_idx', 'x', 'y'])
+
+        self.get_logger().info(f'Debug logs: {log_dir}')
+
+    def _log_info_increments(self, arr: np.ndarray):
+        self._info_call_idx += 1
+        self.get_logger().info(
+            f'[Check1] cycle={self._planning_cycle} call={self._info_call_idx} '
+            f'n={len(arr)} min={arr.min():.4f} max={arr.max():.4f} '
+            f'mean={arr.mean():.4f} std={arr.std():.4f}')
+        self._info_csv.writerow([
+            self._planning_cycle, self._info_call_idx,
+            len(arr),
+            float(arr.min()),
+            float(arr.max()),
+            float(arr.mean()),
+            float(arr.std())
+        ])
+
+    def _log_measurement_cycle(self, x_start: np.ndarray):
+        now = self.get_clock().now().nanoseconds * 1e-9
+        self.get_logger().info(
+            f'[Check2] cycle={self._planning_cycle} t={now:.2f} '
+            f'x_start=({x_start[0]:.2f}, {x_start[1]:.2f})')
+        self._meas_csv.writerow(
+            [self._planning_cycle, now,
+             float(x_start[0]),
+             float(x_start[1])])
+
+    def _log_tree_stats(self, stats: dict):
+        self._tree_csv.writerow([
+            self._planning_cycle, stats['nodes'], stats['closed'],
+            stats.get('best_info'),
+            stats.get('closed_info_min'),
+            stats.get('closed_info_max'),
+            stats.get('closed_info_mean'),
+            stats.get('closed_info_std')
+        ])
+
+    def _log_best_path(self, path: list):
+        for i, point in enumerate(path):
+            self._path_csv.writerow(
+                [self._planning_cycle, i,
+                 float(point[0]),
+                 float(point[1])])
 
     # ------------------------------------------------------------------
     # ROS connections setup
@@ -357,6 +459,7 @@ class PathPlanner(Node):
             self._planning_active = False
 
     def run_planning(self, cancel_event: threading.Event):
+        self._planning_cycle += 1
         # x_start is where the robot will start the next segment, i.e. the
         # end of the segment it is currently driving. Only the cold-start
         # cycle (no segment executed yet) has no _path_end and uses the live
@@ -377,6 +480,8 @@ class PathPlanner(Node):
             f'Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), '
             f'horizon={self.get_parameter("planning_horizon").value} m ...')
 
+        self._log_measurement_cycle(x_start)
+
         is_random = self.get_parameter('planner_type').value == 'random'
         tree = RIGTree(
             delta=self.get_parameter('delta').value,
@@ -394,7 +499,9 @@ class PathPlanner(Node):
             f'in {stats["elapsed_s"]:.2f} s, '
             f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed), '
             f'{stats["gp_calls"]} belief covariance calls')
+        self._log_tree_stats(stats)
         path = tree.best_path()
+        self._log_best_path(path)
 
         with self._lock:
             self._pending_path = path
@@ -489,6 +596,7 @@ class PathPlanner(Node):
                 sigma2_cond = max(float(sigma2_cond), 1e-12)
                 info_increments.append(
                     0.5 * math.log(2 * math.pi * math.e * sigma2_cond))
+            self._log_info_increments(np.array(info_increments))
             return info_increments
 
         return batch_info_fn

@@ -239,6 +239,23 @@ class RIGTree:
 
             nodes_added += len(self.nodes) - nodes_before
 
+        # Debugging -----------------
+        if self.closed:
+            closed_infos = np.array([self.nodes[i].info for i in self.closed])
+            best_info = float(closed_infos.max())
+            closed_info_min = float(closed_infos.min())
+            closed_info_max = float(closed_infos.max())
+            closed_info_mean = float(closed_infos.mean())
+            closed_info_std = float(closed_infos.std())
+        else:
+            best_info = None
+            closed_info_min = None
+            closed_info_max = None
+            closed_info_mean = None
+            closed_info_std = None
+
+        # --------------------------
+
         return {
             'iterations':
             iterations,
@@ -255,6 +272,16 @@ class RIGTree:
             'stopped_reason':
             'cancelled' if (cancel_event is not None and cancel_event.is_set())
             else 'deadline',
+            'best_info':
+            best_info,
+            'closed_info_min':
+            closed_info_min,
+            'closed_info_max':
+            closed_info_max,
+            'closed_info_mean':
+            closed_info_mean,
+            'closed_info_std':
+            closed_info_std,
         }
 
     # ------------------------------------------------------------------
