@@ -205,10 +205,6 @@ class PathPlanner(Node):
 
     def _log_info_increments(self, arr: np.ndarray):
         self._info_call_idx += 1
-        self.get_logger().info(
-            f'[Check1] cycle={self._planning_cycle} call={self._info_call_idx} '
-            f'n={len(arr)} min={arr.min():.4f} max={arr.max():.4f} '
-            f'mean={arr.mean():.4f} std={arr.std():.4f}')
         self._info_csv.writerow([
             self._planning_cycle, self._info_call_idx,
             len(arr),
@@ -220,9 +216,6 @@ class PathPlanner(Node):
 
     def _log_measurement_cycle(self, x_start: np.ndarray):
         now = self.get_clock().now().nanoseconds * 1e-9
-        self.get_logger().info(
-            f'[Check2] cycle={self._planning_cycle} t={now:.2f} '
-            f'x_start=({x_start[0]:.2f}, {x_start[1]:.2f})')
         self._meas_csv.writerow(
             [self._planning_cycle, now,
              float(x_start[0]),
