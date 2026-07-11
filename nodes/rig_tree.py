@@ -16,6 +16,7 @@ class Node:
     x: np.ndarray
     cost: float
     info: float
+    theta: float  # heading of the incoming edge into this node
     parent: Optional[int] = None
     # All positions from the root to this node, in order, including this
     # node's own position as the last entry.
@@ -32,6 +33,8 @@ class RIGTree:
         R                - near radius
         grid             - 2D numpy array (rows=y, cols=x); cell >= 50 means occupied
         resolution       - metres per cell
+        theta_start      - heading (rad) the vehicle has at x_start
+        max_turn_angle   - maximum heading change (rad) Steer() allows per delta step
         batch_info_fn    - takes one path per candidate (ancestor positions
                            followed by the candidate's own new position) and
                            returns a path-conditioned entropy increment for
@@ -46,6 +49,8 @@ class RIGTree:
         R: float,
         grid: np.ndarray,
         resolution: float,
+        theta_start: float,
+        max_turn_angle: float,
         batch_info_fn=None,
     ):
         self.delta = delta
@@ -55,6 +60,8 @@ class RIGTree:
         self.eps_sq = (delta / 2.0)**2
         self.grid = grid
         self.resolution = resolution
+        self.max_turn_angle = max_turn_angle
+        assert 0.0 < max_turn_angle <= math.pi
         self._batch_info_fn = batch_info_fn
 
         self.height, self.width = grid.shape
@@ -67,6 +74,7 @@ class RIGTree:
         root = Node(x=x_start.copy(),
                     cost=0.0,
                     info=i_init,
+                    theta=theta_start,
                     parent=None,
                     path_points=[])
         self.nodes: List[Node] = [root]
@@ -84,15 +92,33 @@ class RIGTree:
         y = random.uniform(0.0, self.y_max)
         return np.array([x, y])
 
-    def _steer(self, x_from: np.ndarray, x_to: np.ndarray) -> np.ndarray:
-        """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most Delta."""
+    def _steer(self, x_from: np.ndarray, theta_from: float,
+               x_to: np.ndarray) -> Tuple[np.ndarray, float]:
+        """Steer(x_from, x_to, Delta): move from x_from toward x_to by at most
+        Delta, clamping the heading change from theta_from to at most
+        max_turn_angle."""
         dx = x_to[0] - x_from[0]
         dy = x_to[1] - x_from[1]
         dist = math.hypot(dx, dy)
-        if dist <= self.delta:
-            return x_to.copy()
-        scale = self.delta / dist
-        return np.array([x_from[0] + dx * scale, x_from[1] + dy * scale])
+        if dist == 0.0:
+            return x_from.copy(), theta_from
+        d = min(dist, self.delta)
+
+        bearing = math.atan2(dy, dx)
+        deflection = math.atan2(math.sin(bearing - theta_from),
+                                 math.cos(bearing - theta_from))
+        if abs(deflection) <= self.max_turn_angle:
+            if dist <= self.delta:
+                return x_to.copy(), theta_from + deflection
+            theta_new = theta_from + deflection
+        else:
+            theta_new = theta_from + math.copysign(
+                self.max_turn_angle, deflection)
+
+        return np.array([
+            x_from[0] + d * math.cos(theta_new),
+            x_from[1] + d * math.sin(theta_new),
+        ]), theta_new
 
     def _no_collision(self, x_from: np.ndarray, x_to: np.ndarray) -> bool:
         """NoCollision: True if the straight segment lies entirely in free space."""
@@ -174,7 +200,9 @@ class RIGTree:
             x_samp = self._sample()
             _, li_nearest = kd.query(x_samp, k=1)
             nearest_idx = int(open_arr[li_nearest])
-            x_feasible = self._steer(self.nodes[nearest_idx].x, x_samp)
+            x_feasible, _ = self._steer(self.nodes[nearest_idx].x,
+                                         self.nodes[nearest_idx].theta,
+                                         x_samp)
 
             # Lines 10-29: find near nodes and extend each toward x_feasible.
             # Split into three phases so GP queries can be batched (one service
@@ -186,12 +214,14 @@ class RIGTree:
             candidates = []
             for near_idx in near_arr:
                 n_near = self.nodes[near_idx]
-                x_new = self._steer(n_near.x, x_feasible)
+                x_new, theta_new = self._steer(n_near.x, n_near.theta,
+                                                x_feasible)
                 if not self._no_collision(n_near.x, x_new):
                     continue
                 c_new = n_near.cost + self._evaluate_cost(n_near.x, x_new)
                 path_points = n_near.path_points + [x_new]
-                candidates.append((near_idx, x_new, c_new, path_points))
+                candidates.append(
+                    (near_idx, x_new, theta_new, c_new, path_points))
 
             if not candidates:
                 continue
@@ -201,7 +231,7 @@ class RIGTree:
             # (e.g. GP service not ready).
             if self._batch_info_fn is not None:
                 increments = self._batch_info_fn(
-                    [p for _, _, _, p in candidates])
+                    [p for _, _, _, _, p in candidates])
                 gp_calls += 1
             else:
                 increments = [1.0] * len(candidates)
@@ -210,7 +240,7 @@ class RIGTree:
             # kd doesn't see nodes newly added in this loop iteration, so we keep our own
             # list of them (newly_added) and check them just like prune.
             newly_added: List[Tuple[np.ndarray, float, float]] = []
-            for j, (near_idx, x_new, c_new,
+            for j, (near_idx, x_new, theta_new, c_new,
                     path_points) in enumerate(candidates):
                 n_near = self.nodes[near_idx]
                 i_new = n_near.info + increments[j]
@@ -218,6 +248,7 @@ class RIGTree:
                 n_new = Node(x=x_new,
                              cost=c_new,
                              info=i_new,
+                             theta=theta_new,
                              parent=near_idx,
                              path_points=path_points)
                 if self._prune(n_new, kd, open_arr):
