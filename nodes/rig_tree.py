@@ -320,13 +320,17 @@ class RIGTree:
     # ------------------------------------------------------------------
 
     def best_path(self) -> List[np.ndarray]:
-        """Reconstructs the most informative completed trajectory."""
-        if not self.closed:
+        """Reconstructs the most informative trajectory. Falls back to the best
+        partial path grown so far if no node has reached the planning horizon
+        yet (e.g. cancelled early for a handoff): an anytime algorithm should
+        return its current best result instead of nothing.
+        """
+        candidates = self.closed if self.closed else set(
+            range(1, len(self.nodes)))
+        if not candidates:
             return []
 
-        # selects absolute information gain (budget constraint is
-        # already enforced by closed-list membership)
-        best_idx = max(self.closed, key=lambda i: self.nodes[i].info)
+        best_idx = max(candidates, key=lambda i: self.nodes[i].info)
         idx: Optional[int] = best_idx
 
         # Reconstruct most informativepath by following parent links back to the root
