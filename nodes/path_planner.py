@@ -20,7 +20,7 @@ from ipp_interfaces.srv import SetPath
 from scalar_field_interfaces.srv import QueryScalarFieldBeliefCovariance
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from tf_transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 
 # Tells Python to look for rig_tree.py/lawnmower.py in the same directory as this file.
@@ -88,7 +88,6 @@ class PathPlanner(Node):
         self._pending_path: list = None
         self._new_path_ready: bool = False
         self._path_end: np.ndarray = None
-        self._path_end_theta: float = None
         self._planning_active: bool = False
         self._planning_cancel_event: threading.Event = None
         self._last_replan_time: float = 0.0
@@ -138,12 +137,6 @@ class PathPlanner(Node):
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
         self.declare_parameter('delta', 0.3)
-
-        # Maximum heading change (rad) Steer() allows per delta step. Not
-        # derived from vehicle kinematics: the control stack is a decoupled,
-        # so this is a tuning knob rather than
-        # a physically-fitted value.
-        self.declare_parameter('max_turn_angle', pi / 4.0)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
@@ -355,7 +348,6 @@ class PathPlanner(Node):
         self.state = State.IDLE
         with self._lock:
             self._path_end = None
-            self._path_end_theta = None
             self._pending_path = None
             self._new_path_ready = False
             cancel_event = self._planning_cancel_event
@@ -486,17 +478,13 @@ class PathPlanner(Node):
         # pose instead.
         with self._lock:
             path_end = self._path_end
-            path_end_theta = self._path_end_theta
         if path_end is not None:
             x_start = np.array(path_end)
-            theta_start = path_end_theta
             # No time ceiling here, cancel_event is the only stop signal.
             planning_time_s = None
         else:
             pose = self.current_pose
             x_start = np.array([pose.position.x, pose.position.y])
-            q = pose.orientation
-            _, _, theta_start = euler_from_quaternion([q.x, q.y, q.z, q.w])
             planning_time_s = self.get_parameter('planning_time_s').value
         grid = self.occupancy_matrix.copy()
 
@@ -518,8 +506,6 @@ class PathPlanner(Node):
             R=self.get_parameter('near_radius').value,
             grid=grid,
             resolution=self.cell_size,
-            theta_start=theta_start,
-            max_turn_angle=self.get_parameter('max_turn_angle').value,
             batch_info_fn=None
             if is_random else self.make_batch_info_fn(info_grid_points),
         )
@@ -793,10 +779,6 @@ class PathPlanner(Node):
         self.set_path_client.call_async(req)
 
         self._path_end = executed_path[-1]
-        if len(executed_path) >= 2:
-            self._path_end_theta = math.atan2(
-                executed_path[-1][1] - executed_path[-2][1],
-                executed_path[-1][0] - executed_path[-2][0])
         self._last_replan_time = self.get_clock().now().nanoseconds * 1e-9
         self.state = State.EXECUTING
 
