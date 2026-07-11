@@ -130,9 +130,10 @@ class PathPlanner(Node):
 
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
+        # Also used as the execution distance: the planned path is truncated
+        # to this length before being sent to path_follower.
         # Larger value means longer path per cycle and less frequent replanning.
         self.declare_parameter('planning_horizon', 2.0)
-        self.declare_parameter('execution_horizon_m', 2.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
@@ -783,8 +784,8 @@ class PathPlanner(Node):
         if self.get_parameter('planner_type').value == 'lawnmower':
             executed_path = path
         else:
-            exec_horizon = self.get_parameter('execution_horizon_m').value
-            executed_path = self._truncate_path_to_distance(path, exec_horizon)
+            executed_path = self._truncate_path_to_distance(
+                path, self.get_parameter('planning_horizon').value)
 
         ros_path = self.rig_path_to_ros(executed_path)
         req = SetPath.Request()
