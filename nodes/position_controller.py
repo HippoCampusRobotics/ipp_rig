@@ -37,13 +37,9 @@ class PositionController(Node):
         self.last_error_z = 0.0
 
     def _declare_parameters(self):
-        # PID gains for the horizontal (x/y) axes, applied in the vehicle frame.
         self.declare_parameter('kp_xy', 1.0)
-        self.declare_parameter('ki_xy', 0.0)
-        self.declare_parameter('kd_xy', 0.0)
+        self.declare_parameter('kd_xy', 0.2)
 
-        # PID gains for the vertical (z/depth) axis, tuned separately since
-        # buoyancy makes the depth response different from the lateral thrusters.
         self.declare_parameter('kp_z', 2.0)
         self.declare_parameter('ki_z', 0.1)
         self.declare_parameter('kd_z', 2.0)
@@ -81,18 +77,19 @@ class PositionController(Node):
 
     def apply_control(self, position: Point, yaw: float):
         now = self.get_clock().now()
+
+        # Errors
         x_error = self.setpoint.x - position.x
         y_error = self.setpoint.y - position.y
         z_error = self.setpoint.z - position.z
 
+        # Integral and derivatives
         if self.last_time is None:
             dt = 0.0
         else:
             dt = (now - self.last_time).nanoseconds * 1e-9
 
         if dt > 0.0:
-            self.integral_x += x_error * dt
-            self.integral_y += y_error * dt
             self.integral_z += z_error * dt
             derivative_x = (x_error - self.last_error_x) / dt
             derivative_y = (y_error - self.last_error_y) / dt
@@ -102,25 +99,27 @@ class PositionController(Node):
             derivative_y = 0.0
             derivative_z = 0.0
 
+        # xy PD --------------
         kp_xy = self.get_parameter('kp_xy').value
-        ki_xy = self.get_parameter('ki_xy').value
         kd_xy = self.get_parameter('kd_xy').value
+        x = kp_xy * x_error + kd_xy * derivative_x
+        y = kp_xy * y_error + kd_xy * derivative_y
+
+        # z PID --------------
         kp_z = self.get_parameter('kp_z').value
         ki_z = self.get_parameter('ki_z').value
         kd_z = self.get_parameter('kd_z').value
-
-        x = kp_xy * x_error + ki_xy * self.integral_x + kd_xy * derivative_x
-        y = kp_xy * y_error + ki_xy * self.integral_y + kd_xy * derivative_y
         z = kp_z * z_error + ki_z * self.integral_z + kd_z * derivative_z
 
+        # Update Errors
         self.last_time = now
         self.last_error_x = x_error
         self.last_error_y = y_error
         self.last_error_z = z_error
 
+        # Thrust normalisation in xy plane
         thrust_x = math.cos(-yaw) * x - math.sin(-yaw) * y
         thrust_y = math.sin(-yaw) * x + math.cos(-yaw) * y
-
         max_thrust_xy = 0.3
         thrust_xy_norm = math.hypot(thrust_x, thrust_y)
         if thrust_xy_norm > max_thrust_xy:
