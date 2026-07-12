@@ -47,17 +47,6 @@ def occupancy_grid_to_matrix(grid: OccupancyGrid):
     return data.reshape(grid.info.height, grid.info.width)
 
 
-def _solve_with_relative_jitter(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Solves a @ x = b, adding a tiny value to a's diagonal first so it stays
-    invertible. The tiny value scales with a's own values instead of being a
-    fixed number: covariance values can be very small close to already-dense
-    measurements and much bigger in unexplored areas, so a fixed value could
-    end up too large and wash out the real signal in the small case.
-    """
-    scale = max(float(np.mean(np.diag(a))), 1e-12) if a.size else 1e-12
-    jitter = scale * 1e-6 * np.eye(a.shape[0])
-    return np.linalg.solve(a + jitter, b)
-
 
 class PathPlanner(Node):
     """Receding-horizon IPP node. Plans with RIG-tree and replans when the path end is reached.
@@ -628,27 +617,41 @@ class PathPlanner(Node):
             # the increment below.
             c_g_all = cov[:n_grid, n_grid:]  # (M, K)
             c_xx_all = cov[n_grid:, n_grid:]  # (K, K)
+            # GP likelihood noise (sigma_n^2), owned by the belief model, not
+            # duplicated here: it can change if the belief refits its
+            # hyperparameters, so it's read fresh from the service response
+            # every call instead of being a planner-side constant.
+            sigma_n_sq = result.measurement_noise_variance
 
             def trace_reduction(idx: list) -> float:
                 """How much total grid uncertainty is removed by knowing the
                 points at idx, on top of the real measurements already in
-                the belief. idx indexes into query_points."""
+                the belief. idx indexes into query_points.
+
+                Follows the standard GP posterior covariance equation
+                (Rasmussen & Williams 2006; Eq. 3 in Popovic et al. 2020):
+                conditioning is on simulated noisy measurements
+                z = f + eps, eps ~ N(0, sigma_n_sq), so the block being
+                inverted is (c_xx + sigma_n_sq * I), not c_xx alone.
+                """
                 if not idx:
                     return 0.0
                 c_gx = c_g_all[:, idx]  # (M, |idx|)
                 c_xx = c_xx_all[np.ix_(idx, idx)]  # (|idx|, |idx|)
-                y = _solve_with_relative_jitter(c_xx, c_gx.T)  # (|idx|, M)
+                c_xx_noisy = c_xx + sigma_n_sq * np.eye(len(idx))
+                y = np.linalg.solve(c_xx_noisy, c_gx.T)  # (|idx|, M)
                 return float(np.sum(c_gx * y.T))
 
             # Increment = additional grid-trace reduction gained by adding
             # the candidate's own new point (last in idx) on top of its
             # ancestors (idx[:-1]). Always >= 0 by construction (Schur
-            # complement of a PSD matrix: conditioning never increases
-            # variance), so it slots into node.info = parent.info +
-            # increment without changing that accumulation logic. Unlike
-            # entropy/log-det, A-optimal trace reduction is not a strictly
-            # submodular set function, but for smooth spatial kernels it
-            # exhibits the same diminishing-returns behaviour in practice.
+            # complement of c_xx + sigma_n_sq * I, still PSD: conditioning
+            # never increases variance), so it slots into node.info =
+            # parent.info + increment without changing that accumulation
+            # logic. Unlike entropy/log-det, A-optimal trace reduction is
+            # not a strictly submodular set function, but for smooth
+            # spatial kernels it exhibits the same diminishing-returns
+            # behaviour in practice.
             info_increments = []
             for idx in candidate_indices:
                 reduction_with_new_point = trace_reduction(idx)
