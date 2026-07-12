@@ -47,7 +47,6 @@ def occupancy_grid_to_matrix(grid: OccupancyGrid):
     return data.reshape(grid.info.height, grid.info.width)
 
 
-
 class PathPlanner(Node):
     """Receding-horizon IPP node. Plans with RIG-tree and replans when the path end is reached.
 
@@ -629,7 +628,7 @@ class PathPlanner(Node):
                 the belief. idx indexes into query_points.
 
                 Follows the standard GP posterior covariance equation
-                (Rasmussen & Williams 2006; Eq. 3 in Popovic et al. 2020):
+                (Eq. 3 in Popovic et al. 2020):
                 conditioning is on simulated noisy measurements
                 z = f + eps, eps ~ N(0, sigma_n_sq), so the block being
                 inverted is (c_xx + sigma_n_sq * I), not c_xx alone.
@@ -774,7 +773,8 @@ class PathPlanner(Node):
             executed_path = path
         else:
             executed_path = self._truncate_path_to_distance(
-                path, self.get_parameter('planning_horizon').value)
+                path,
+                self.get_parameter('planning_horizon').value)
 
         ros_path = self.rig_path_to_ros(executed_path)
         req = SetPath.Request()
