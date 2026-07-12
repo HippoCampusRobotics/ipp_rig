@@ -1,5 +1,5 @@
 /**: # wildcard for the node name
   ros__parameters:
-    tank_size_x: 2.0    # in m
-    tank_size_y: 4.0    # in m
-    cell_resolution: 0.05  # in m
+    tank_size_x: 4.0    # in m
+    tank_size_y: 8.0    # in m
+    cell_resolution: 0.10  # in m

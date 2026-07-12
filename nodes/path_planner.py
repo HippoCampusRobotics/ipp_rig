@@ -113,23 +113,23 @@ class PathPlanner(Node):
         self.declare_parameter('rng_seed', -1)
 
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
-        self.declare_parameter('lane_spacing', 0.3)
+        self.declare_parameter('lane_spacing', 0.27)
 
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Also used as the execution distance: the planned path is truncated
         # to this length before being sent to path_follower.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 2.0)
+        self.declare_parameter('planning_horizon', 5.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.3)
+        self.declare_parameter('delta', 0.5)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
         # Larger value means more connections per iteration but slower planning.
-        self.declare_parameter('near_radius', 0.3)
+        self.declare_parameter('near_radius', 0.5)
 
         # Planning time per cycle (s). RIG-tree is an anytime algorithm
         # ("while not terminated", Algorithm 2) and runs as long as the operator allows.
@@ -137,7 +137,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 2.0)
+        self.declare_parameter('planning_time_s', 8.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -157,13 +157,13 @@ class PathPlanner(Node):
 
         # Period (s) between IR measurement triggers while executing a path.
         # 0.2 s = 5 Hz.
-        self.declare_parameter('measurement_period_s', 0.2)
+        self.declare_parameter('measurement_period_s', 1.0)
 
         # Points per axis for the fixed grid used to score how informative a
         # candidate path is (grid size is info_grid_resolution^2). Bigger
         # grid = more accurate info score but slower, since every RIG-tree
         # iteration queries all grid points together with the candidates.
-        self.declare_parameter('info_grid_resolution', 15)
+        self.declare_parameter('info_grid_resolution', 26)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
@@ -322,6 +322,11 @@ class PathPlanner(Node):
         if rng_seed >= 0:
             random.seed(rng_seed)
             self.get_logger().info(f'Seeded RNG with rng_seed={rng_seed}.')
+        # One measurement at the start position before the first planning
+        # cycle, so the very first cycle already scores candidates against
+        # a non-empty belief instead of the bare prior.
+        if self.measurement_client.service_is_ready():
+            self.measurement_client.call_async(Trigger.Request())
         self.state = State.PLANNING
         self.trigger_replan()
         response.success = True
@@ -460,20 +465,11 @@ class PathPlanner(Node):
 
     def run_planning(self, cancel_event: threading.Event):
         self._planning_cycle += 1
-        # x_start is where the robot will start the next segment, i.e. the
-        # end of the segment it is currently driving. Only the cold-start
-        # cycle (no segment executed yet) has no _path_end and uses the live
-        # pose instead.
-        with self._lock:
-            path_end = self._path_end
-        if path_end is not None:
-            x_start = np.array(path_end)
-            # No time ceiling here, cancel_event is the only stop signal.
-            planning_time_s = None
-        else:
-            pose = self.current_pose
-            x_start = np.array([pose.position.x, pose.position.y])
-            planning_time_s = self.get_parameter('planning_time_s').value
+        # The robot is stationary (holding at the previous path's end) for
+        # the whole PLANNING phase, so the live pose is exactly x_start.
+        pose = self.current_pose
+        x_start = np.array([pose.position.x, pose.position.y])
+        planning_time_s = self.get_parameter('planning_time_s').value
         grid = self.occupancy_matrix.copy()
 
         self.get_logger().info(
@@ -514,7 +510,7 @@ class PathPlanner(Node):
             self._planning_active = False
 
     def _trigger_measurement(self):
-        if self.state == State.IDLE:
+        if self.state != State.EXECUTING:
             return
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
@@ -725,23 +721,9 @@ class PathPlanner(Node):
             self._end_segment_and_replan(f'Replan timeout ({timeout} s)')
 
     def _end_segment_and_replan(self, reason: str):
-        """If a plan for the next segment is already running, cancel it so
-        it returns its best-so-far path now. Otherwise, Task 2 above starts
-        a fresh one on the next tick since state is now PLANNING.
-        """
-        with self._lock:
-            active = self._planning_active
-            cancel_event = self._planning_cancel_event
+        self.get_logger().info(f'{reason}, replanning.')
         self.state = State.PLANNING
-        if active:
-            self.get_logger().info(
-                f'{reason}: aborting in-flight planning for handoff.',
-                throttle_duration_sec=2.0)
-            cancel_event.set()
-        else:
-            self.get_logger().warn(
-                f'{reason}: no plan in flight, waiting for retry.',
-                throttle_duration_sec=2.0)
+        self.trigger_replan()
 
     def _truncate_path_to_distance(self, path: list, max_dist: float) -> list:
         """Cuts path short so the robot travels at most max_dist meters along it."""
@@ -788,10 +770,6 @@ class PathPlanner(Node):
         self.publish_path_marker(path)
         self.get_logger().info(
             f'Executing {len(executed_path)} of {len(path)} waypoints.')
-
-        # Start planning the next segment now, while this one is driven.
-        if self.get_parameter('planner_type').value != 'lawnmower':
-            self.trigger_replan()
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""
