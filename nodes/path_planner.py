@@ -113,18 +113,18 @@ class PathPlanner(Node):
         self.declare_parameter('rng_seed', -1)
 
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
-        self.declare_parameter('lane_spacing', 0.27)
+        self.declare_parameter('lane_spacing', 0.18)
 
         # Planning horizon (m) per cycle, B in the paper (Section 4.1).
         # Nodes with path length > B enter the closed set and represent complete paths.
         # Also used as the execution distance: the planned path is truncated
         # to this length before being sent to path_follower.
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 5.0)
+        self.declare_parameter('planning_horizon', 2.0)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
         # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.5)
+        self.declare_parameter('delta', 0.3)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
@@ -137,7 +137,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 8.0)
+        self.declare_parameter('planning_time_s', 4.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -157,13 +157,13 @@ class PathPlanner(Node):
 
         # Period (s) between IR measurement triggers while executing a path.
         # 0.2 s = 5 Hz.
-        self.declare_parameter('measurement_period_s', 1.0)
+        self.declare_parameter('measurement_period_s', 0.5)
 
         # Points per axis for the fixed grid used to score how informative a
         # candidate path is (grid size is info_grid_resolution^2). Bigger
         # grid = more accurate info score but slower, since every RIG-tree
         # iteration queries all grid points together with the candidates.
-        self.declare_parameter('info_grid_resolution', 26)
+        self.declare_parameter('info_grid_resolution', 15)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)

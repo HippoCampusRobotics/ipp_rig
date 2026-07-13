@@ -28,7 +28,7 @@ class PathFollower(Node):
         self.position_pub = self.create_publisher(
             PointStamped, 'position_controller/setpoint', 1)
         self.path_pub = self.create_publisher(Path, '~/current_path', 1)
-        self.look_ahead_distance = 0.6
+        self.look_ahead_distance = 0.4
         self.target_index = 0
         self.path: list[PoseStamped] = None
 
