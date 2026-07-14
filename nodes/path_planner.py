@@ -115,21 +115,20 @@ class PathPlanner(Node):
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
         self.declare_parameter('lane_spacing', 0.18)
 
-        # Planning horizon (m) per cycle, B in the paper (Section 4.1).
-        # Nodes with path length > B enter the closed set and represent complete paths.
-        # Also used as the execution distance: the planned path is truncated
-        # to this length before being sent to path_follower.
+        # Planning horizon (number of nodes/edges from the root) per cycle,
+        # B in the paper (Section 4.1). Nodes whose depth reaches B enter the
+        # closed set and represent complete paths, which is then sent to
+        # path_follower in full (one node per edge from the root).
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 2.0)
+        self.declare_parameter('planning_horizon', 6)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
-        # B/Delta gives the maximum tree depth (roughly 2 to 3 levels at 0.5/0.2).
-        self.declare_parameter('delta', 0.3)
+        self.declare_parameter('delta', 0.5)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
         # Larger value means more connections per iteration but slower planning.
-        self.declare_parameter('near_radius', 0.5)
+        self.declare_parameter('near_radius', 0.7)
 
         # Planning time per cycle (s). RIG-tree is an anytime algorithm
         # ("while not terminated", Algorithm 2) and runs as long as the operator allows.
@@ -137,7 +136,7 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 4.0)
+        self.declare_parameter('planning_time_s', 2.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
@@ -163,7 +162,7 @@ class PathPlanner(Node):
         # candidate path is (grid size is info_grid_resolution^2). Bigger
         # grid = more accurate info score but slower, since every RIG-tree
         # iteration queries all grid points together with the candidates.
-        self.declare_parameter('info_grid_resolution', 15)
+        self.declare_parameter('info_grid_resolution', 25)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
@@ -474,7 +473,7 @@ class PathPlanner(Node):
 
         self.get_logger().info(
             f'Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), '
-            f'horizon={self.get_parameter("planning_horizon").value} m ...')
+            f'horizon={self.get_parameter("planning_horizon").value} nodes ...')
 
         self._log_measurement_cycle(x_start)
 
@@ -725,51 +724,30 @@ class PathPlanner(Node):
         self.state = State.PLANNING
         self.trigger_replan()
 
-    def _truncate_path_to_distance(self, path: list, max_dist: float) -> list:
-        """Cuts path short so the robot travels at most max_dist meters along it."""
-        if len(path) <= 2:
-            return path
-        traveled = 0.0
-        for i in range(1, len(path)):
-            x0, y0 = path[i - 1]
-            x1, y1 = path[i]
-            traveled += math.hypot(x1 - x0, y1 -
-                                   y0)  # cumulative distance of path segments
-            if traveled >= max_dist:
-                return path[:i + 1]
-        return path
-
     def send_path(self, path: list):
         """Sends the planned path to path_follower.
 
-        RIG-tree paths are truncated to the execution horizon (receding-horizon
-        replanning). The lawnmower path is a one-time full-coverage path, so
-        it is sent in its entirety instead.
+        RIG-tree paths already stop exactly at the node-count planning
+        horizon (receding-horizon replanning), so they're sent in full. The
+        lawnmower path is a one-time full-coverage path, likewise sent in
+        its entirety.
         """
         if not path:
             self.get_logger().warn('Empty path, retrying.')
             self.state = State.PLANNING
             return
 
-        if self.get_parameter('planner_type').value == 'lawnmower':
-            executed_path = path
-        else:
-            executed_path = self._truncate_path_to_distance(
-                path,
-                self.get_parameter('planning_horizon').value)
-
-        ros_path = self.rig_path_to_ros(executed_path)
+        ros_path = self.rig_path_to_ros(path)
         req = SetPath.Request()
         req.path = ros_path
         self.set_path_client.call_async(req)
 
-        self._path_end = executed_path[-1]
+        self._path_end = path[-1]
         self._last_replan_time = self.get_clock().now().nanoseconds * 1e-9
         self.state = State.EXECUTING
 
         self.publish_path_marker(path)
-        self.get_logger().info(
-            f'Executing {len(executed_path)} of {len(path)} waypoints.')
+        self.get_logger().info(f'Executing {len(path)} waypoints.')
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""

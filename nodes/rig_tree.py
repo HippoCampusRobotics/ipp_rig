@@ -27,7 +27,8 @@ class RIGTree:
     """
     Inputs:
         delta            - step size Delta
-        planning_horizon - B (maximum path length / planning horizon)
+        planning_horizon - B (maximum tree depth / number of nodes per
+                           planning cycle, not a distance)
         x_start          - start position as numpy [x, y] in metres
         R                - near radius
         grid             - 2D numpy array (rows=y, cols=x); cell >= 50 means occupied
@@ -41,7 +42,7 @@ class RIGTree:
     def __init__(
         self,
         delta: float,
-        planning_horizon: float,
+        planning_horizon: int,
         x_start: np.ndarray,
         R: float,
         grid: np.ndarray,
@@ -71,7 +72,7 @@ class RIGTree:
                     path_points=[])
         self.nodes: List[Node] = [root]
         self.closed: set = set(
-        )  # V_closed: nodes whose path cost exceeds the planning horizon
+        )  # V_closed: nodes whose depth has reached the planning horizon
         self.edges: List[Tuple[int, int]] = []
 
     # ------------------------------------------------------------------
@@ -234,7 +235,9 @@ class RIGTree:
                 self.edges.append((near_idx, new_idx))
                 newly_added.append((x_new, i_new, c_new))
 
-                if c_new > self.planning_horizon:
+                # len(path_points) is this node's depth (edges from root):
+                # the root has path_points=[] and each edge appends one entry.
+                if len(path_points) >= self.planning_horizon:
                     self.closed.add(new_idx)
 
             nodes_added += len(self.nodes) - nodes_before
