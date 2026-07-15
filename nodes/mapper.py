@@ -114,10 +114,10 @@ class MapperNode(Node):
         return img_obstacles.astype(dtype='int8')
 
     def inflate_obstacles(self, cells: np.ndarray) -> np.ndarray:
-        # Inflate obstacles by approximately 50 cm so the planner keeps
+        # Inflate obstacles by approximately 30 cm so the planner keeps
         # the robot away from walls and obstacles
         img = cells.astype(dtype='uint8')
-        dilatation_size = int(np.round(0.5 / self.cell_resolution))
+        dilatation_size = int(np.round(0.3 / self.cell_resolution))
 
         # Elliptical kernel for uniform inflation in all directions
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,

@@ -13,6 +13,7 @@ from nav_msgs.msg import Path
 from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
 from std_srvs.srv import Trigger
+from tf_transformations import euler_from_quaternion
 
 
 class PathFollower(Node):
@@ -85,6 +86,7 @@ class PathFollower(Node):
             self.position_target = None
             self.yaw_target = None
             return False
+        reached_end = False
         while True:
             target_position = self.path[index].pose.position
             d = (current_position.x - target_position.x)**2 + (
@@ -95,11 +97,17 @@ class PathFollower(Node):
             index += 1
             if index >= len(self.path):
                 self.target_index = len(self.path) - 1
+                reached_end = True
                 break
-        target_position = self.path[self.target_index].pose.position
-        self.position_target = target_position
-        self.yaw_target = math.atan2(target_position.y - current_position.y,
-                                     target_position.x - current_position.x)
+        target_pose = self.path[self.target_index].pose
+        self.position_target = target_pose.position
+        if reached_end:
+            q = target_pose.orientation
+            _, _, self.yaw_target = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        else:
+            self.yaw_target = math.atan2(
+                target_pose.position.y - current_position.y,
+                target_pose.position.x - current_position.x)
         return True
 
 

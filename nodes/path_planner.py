@@ -146,8 +146,8 @@ class PathPlanner(Node):
 
         # Start position for the move_to_start service.
         self.declare_parameter('robot_z', -0.5)
-        self.declare_parameter('start_x', 0.45)
-        self.declare_parameter('start_y', 0.45)
+        self.declare_parameter('start_x', 0.35)
+        self.declare_parameter('start_y', 0.35)
         self.declare_parameter('start_yaw', pi / 2.0)
 
         # Time-based safety fallback, not paper-conform.
