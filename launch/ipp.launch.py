@@ -42,6 +42,30 @@ def generate_launch_description() -> LaunchDescription:
                     'unseeded.',
     ))
 
+    launch_description.add_action(DeclareLaunchArgument(
+        'roi_adaptive_enabled',
+        default_value='false',
+        description='Enable value-dependent region-of-interest weighting '
+                    '(Hitz et al. 2017, Sec. 4.3). Forwarded to '
+                    "path_planner.py's 'roi_adaptive_enabled' parameter.",
+    ))
+
+    launch_description.add_action(DeclareLaunchArgument(
+        'roi_threshold',
+        default_value='0.008',
+        description='f_th (Hitz et al. 2017, Eq. 14), only used when '
+                    'roi_adaptive_enabled. Tuned to the current scenarios '
+                    '(amplitude=0.011, clip_max=0.02); re-tune if that '
+                    'changes. Forwarded to path_planner.py.',
+    ))
+
+    launch_description.add_action(DeclareLaunchArgument(
+        'roi_beta',
+        default_value='2.0',
+        description='beta (Hitz et al. 2017, Eq. 15), only used when '
+                    'roi_adaptive_enabled. Forwarded to path_planner.py.',
+    ))
+
     package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
 
@@ -77,6 +101,14 @@ def generate_launch_description() -> LaunchDescription:
                     'planner_type': LaunchConfiguration('planner'),
                     'rng_seed': ParameterValue(
                         LaunchConfiguration('rng_seed'), value_type=int),
+                    'roi_adaptive_enabled': ParameterValue(
+                        LaunchConfiguration('roi_adaptive_enabled'),
+                        value_type=bool),
+                    'roi_threshold': ParameterValue(
+                        LaunchConfiguration('roi_threshold'),
+                        value_type=float),
+                    'roi_beta': ParameterValue(
+                        LaunchConfiguration('roi_beta'), value_type=float),
                 },
             ],
         ),

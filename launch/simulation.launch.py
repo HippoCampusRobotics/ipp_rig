@@ -36,6 +36,28 @@ def generate_launch_description():
             description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
                         'unseeded.',
         ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_adaptive_enabled',
+            default_value='false',
+            description='Enable value-dependent region-of-interest '
+                        'weighting (Hitz et al. 2017, Sec. 4.3).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_threshold',
+            default_value='0.008',
+            description='f_th (Hitz et al. 2017, Eq. 14), only used when '
+                        'roi_adaptive_enabled. Tuned to the current '
+                        'scenarios (amplitude=0.011, clip_max=0.02).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_beta',
+            default_value='2.0',
+            description='beta (Hitz et al. 2017, Eq. 15), only used when '
+                        'roi_adaptive_enabled.',
+        ))
 
     scalar_field_sim_path = get_package_share_path('scalar_field_sim')
     scalar_field_belief_path = get_package_share_path('scalar_field_belief')
@@ -87,6 +109,9 @@ def generate_launch_description():
     args.add('vehicle_name')
     args.add('planner')
     args.add('rng_seed')
+    args.add('roi_adaptive_enabled')
+    args.add('roi_threshold')
+    args.add('roi_beta')
     args['use_sim_time'] = 'true'
     launch_description.add_action(
         IncludeLaunchDescription(

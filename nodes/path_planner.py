@@ -164,6 +164,29 @@ class PathPlanner(Node):
         # iteration queries all grid points together with the candidates.
         self.declare_parameter('info_grid_resolution', 25)
 
+        # Adaptive, value-dependent region-of-interest weighting (Hitz et al.
+        # 2017, "Adaptive continuous-space informative path planning for
+        # online environmental monitoring", Sec. 4.3, Eq. 14-15). Off by
+        # default so the plain value-independent trace-reduction objective
+        # (existing field-study results) is unaffected.
+        self.declare_parameter('roi_adaptive_enabled', False)
+
+        # f_th in Hitz et al. Eq. 14: field value above which a grid point
+        # counts as "interesting". 0.0 would be a near no-op default here
+        # (the field is clipped to [0, 0.02] and stays non-negative almost
+        # everywhere, so mu+beta*sigma >= 0.0 holds almost everywhere even
+        # with roi_adaptive_enabled=True) - 0.008 instead is tuned to the
+        # current scenarios (evaluation_field.toml / random_fields/*.toml
+        # all use amplitude=0.011, clip_max=0.02). Re-tune per scenario if
+        # that amplitude changes, like lane_spacing.
+        self.declare_parameter('roi_threshold', 0.008)
+
+        # beta in Hitz et al. Eq. 15: confidence margin on the posterior
+        # std-dev used to classify a grid point as confidently below
+        # roi_threshold. Larger values keep more of the map classified
+        # "interesting" for longer.
+        self.declare_parameter('roi_beta', 2.0)
+
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
     # ------------------------------------------------------------------
@@ -548,6 +571,10 @@ class PathPlanner(Node):
             )
             return None
 
+        roi_adaptive_enabled = self.get_parameter('roi_adaptive_enabled').value
+        roi_threshold = self.get_parameter('roi_threshold').value
+        roi_beta = self.get_parameter('roi_beta').value
+
         n_grid = len(grid_points)
         # Grid queries are identical on every call this cycle, so build
         # them once and only append the (cheap, per-call) path-point
@@ -617,6 +644,25 @@ class PathPlanner(Node):
             # every call instead of being a planner-side constant.
             sigma_n_sq = result.measurement_noise_variance
 
+            # Value-dependent region-of-interest weighting (Hitz et al. 2017,
+            # Sec. 4.3, Eq. 14-15): a grid point keeps full weight unless the
+            # belief is confident (mu + beta*sigma) it's below roi_threshold.
+            # Early on sigma_grid is large everywhere so this is ~all-ones
+            # (today's plain exploration); it only narrows once measurements
+            # shrink grid uncertainty. Note: unlike Hitz's replanning scheme,
+            # this RIG-tree has no global/local budget split (their lambda),
+            # so if roi_weights ever goes all-zero every candidate's
+            # increment collapses to 0 and the tree can no longer
+            # discriminate between paths.
+            if roi_adaptive_enabled:
+                mean_grid = np.asarray(result.mean[:n_grid])
+                sigma_grid = np.sqrt(
+                    np.clip(np.diag(cov[:n_grid, :n_grid]), 0.0, None))
+                roi_weights = (mean_grid + roi_beta * sigma_grid >=
+                               roi_threshold).astype(float)
+            else:
+                roi_weights = np.ones(n_grid)
+
             def trace_reduction(idx: list) -> float:
                 """How much total grid uncertainty is removed by knowing the
                 points at idx, on top of the real measurements already in
@@ -634,7 +680,11 @@ class PathPlanner(Node):
                 c_xx = c_xx_all[np.ix_(idx, idx)]  # (|idx|, |idx|)
                 c_xx_noisy = c_xx + sigma_n_sq * np.eye(len(idx))
                 y = np.linalg.solve(c_xx_noisy, c_gx.T)  # (|idx|, M)
-                return float(np.sum(c_gx * y.T))
+                # roi_weights applies the Eq. 15 mask per grid point, once,
+                # post-hoc on the per-point quadratic-form terms - not by
+                # pre-scaling c_gx above, which also feeds np.linalg.solve
+                # and would square the weight instead of applying it once.
+                return float(np.sum(roi_weights[:, None] * c_gx * y.T))
 
             # Increment = additional grid-trace reduction gained by adding
             # the candidate's own new point (last in idx) on top of its
