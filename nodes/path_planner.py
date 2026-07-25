@@ -105,11 +105,12 @@ class PathPlanner(Node):
         # or 'random' (RIG-tree without variance information, i.e. a random walk).
         self.declare_parameter('planner_type', 'rig')
 
-        # Seeds Python's random module (used by RIGTree.Sample()) once at
-        # mission start. -1 (default) leaves the RNG unseeded. Set the same
-        # non-negative seed across a rig/random comparison run to make the
-        # planners see the same sequence of sample draws for a fair,
-        # reproducible comparison.
+        # Seeds Python's random module (used by RIGTree.Sample()), combined
+        # with the planning-cycle count, at the start of every planning
+        # cycle (see run_planning()). -1 (default) leaves the RNG unseeded.
+        # Set the same non-negative seed across a rig/random comparison run
+        # to make the planners see the same sequence of sample draws every
+        # cycle, for a fair, reproducible comparison.
         self.declare_parameter('rng_seed', -1)
 
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
@@ -165,26 +166,16 @@ class PathPlanner(Node):
         self.declare_parameter('info_grid_resolution', 25)
 
         # Adaptive, value-dependent region-of-interest weighting (Hitz et al.
-        # 2017, "Adaptive continuous-space informative path planning for
-        # online environmental monitoring", Sec. 4.3, Eq. 14-15). Off by
-        # default so the plain value-independent trace-reduction objective
-        # (existing field-study results) is unaffected.
+        # 2017)
         self.declare_parameter('roi_adaptive_enabled', False)
 
         # f_th in Hitz et al. Eq. 14: field value above which a grid point
-        # counts as "interesting". 0.0 would be a near no-op default here
-        # (the field is clipped to [0, 0.02] and stays non-negative almost
-        # everywhere, so mu+beta*sigma >= 0.0 holds almost everywhere even
-        # with roi_adaptive_enabled=True) - 0.008 instead is tuned to the
-        # current scenarios (evaluation_field.toml / random_fields/*.toml
-        # all use amplitude=0.011, clip_max=0.02). Re-tune per scenario if
-        # that amplitude changes, like lane_spacing.
+        # counts as "interesting"
         self.declare_parameter('roi_threshold', 0.008)
 
         # beta in Hitz et al. Eq. 15: confidence margin on the posterior
         # std-dev used to classify a grid point as confidently below
-        # roi_threshold. Larger values keep more of the map classified
-        # "interesting" for longer.
+        # roi_threshold
         self.declare_parameter('roi_beta', 2.0)
 
     # ------------------------------------------------------------------
@@ -340,10 +331,6 @@ class PathPlanner(Node):
         self.get_logger().info(
             f'Start requested, planner_type={self.get_parameter("planner_type").value}.'
         )
-        rng_seed = self.get_parameter('rng_seed').value
-        if rng_seed >= 0:
-            random.seed(rng_seed)
-            self.get_logger().info(f'Seeded RNG with rng_seed={rng_seed}.')
         # One measurement at the start position before the first planning
         # cycle, so the very first cycle already scores candidates against
         # a non-empty belief instead of the bare prior.
@@ -487,6 +474,14 @@ class PathPlanner(Node):
 
     def run_planning(self, cancel_event: threading.Event):
         self._planning_cycle += 1
+        # Reseeded every cycle (not just once at mission start): 'rig' and
+        # 'random' draw different numbers of Sample() draws per wall-clock
+        # planning cycle ('random' skips the GP service call, so it runs
+        # more iterations), so a mission-start-only seed would only keep
+        # both arms' draw streams aligned during the first cycle.
+        rng_seed = self.get_parameter('rng_seed').value
+        if rng_seed >= 0:
+            random.seed(rng_seed * 10000 + self._planning_cycle)
         # The robot is stationary (holding at the previous path's end) for
         # the whole PLANNING phase, so the live pose is exactly x_start.
         pose = self.current_pose
@@ -645,21 +640,13 @@ class PathPlanner(Node):
             sigma_n_sq = result.measurement_noise_variance
 
             # Value-dependent region-of-interest weighting (Hitz et al. 2017,
-            # Sec. 4.3, Eq. 14-15): a grid point keeps full weight unless the
-            # belief is confident (mu + beta*sigma) it's below roi_threshold.
-            # Early on sigma_grid is large everywhere so this is ~all-ones
-            # (today's plain exploration); it only narrows once measurements
-            # shrink grid uncertainty. Note: unlike Hitz's replanning scheme,
-            # this RIG-tree has no global/local budget split (their lambda),
-            # so if roi_weights ever goes all-zero every candidate's
-            # increment collapses to 0 and the tree can no longer
-            # discriminate between paths.
+            # Sec. 4.3, Eq. 14-15)
             if roi_adaptive_enabled:
                 mean_grid = np.asarray(result.mean[:n_grid])
                 sigma_grid = np.sqrt(
                     np.clip(np.diag(cov[:n_grid, :n_grid]), 0.0, None))
-                roi_weights = (mean_grid + roi_beta * sigma_grid >=
-                               roi_threshold).astype(float)
+                roi_weights = (mean_grid + roi_beta * sigma_grid
+                               >= roi_threshold).astype(float)
             else:
                 roi_weights = np.ones(n_grid)
 
@@ -680,10 +667,7 @@ class PathPlanner(Node):
                 c_xx = c_xx_all[np.ix_(idx, idx)]  # (|idx|, |idx|)
                 c_xx_noisy = c_xx + sigma_n_sq * np.eye(len(idx))
                 y = np.linalg.solve(c_xx_noisy, c_gx.T)  # (|idx|, M)
-                # roi_weights applies the Eq. 15 mask per grid point, once,
-                # post-hoc on the per-point quadratic-form terms - not by
-                # pre-scaling c_gx above, which also feeds np.linalg.solve
-                # and would square the weight instead of applying it once.
+                # roi_weights applies the Eq. 15 mask per grid point
                 return float(np.sum(roi_weights[:, None] * c_gx * y.T))
 
             # Increment = additional grid-trace reduction gained by adding

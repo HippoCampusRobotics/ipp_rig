@@ -38,6 +38,18 @@ def generate_launch_description():
         ))
     launch_description.add_action(
         DeclareLaunchArgument(
+            'planning_horizon',
+            default_value='6',
+            description='B (max tree node count per planning cycle).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'planning_time_s',
+            default_value='2.0',
+            description='Anytime wall-clock budget (s) per planning cycle.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
             'roi_adaptive_enabled',
             default_value='false',
             description='Enable value-dependent region-of-interest '
@@ -109,6 +121,8 @@ def generate_launch_description():
     args.add('vehicle_name')
     args.add('planner')
     args.add('rng_seed')
+    args.add('planning_horizon')
+    args.add('planning_time_s')
     args.add('roi_adaptive_enabled')
     args.add('roi_threshold')
     args.add('roi_beta')

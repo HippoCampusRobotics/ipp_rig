@@ -43,6 +43,22 @@ def generate_launch_description() -> LaunchDescription:
     ))
 
     launch_description.add_action(DeclareLaunchArgument(
+        'planning_horizon',
+        default_value='6',
+        description='B (max tree node count per planning cycle), Hollinger '
+                    "& Sukhatme 2014. Forwarded to path_planner.py's "
+                    "'planning_horizon' parameter.",
+    ))
+
+    launch_description.add_action(DeclareLaunchArgument(
+        'planning_time_s',
+        default_value='2.0',
+        description='Anytime wall-clock budget (s) per planning cycle. '
+                    "Forwarded to path_planner.py's 'planning_time_s' "
+                    'parameter.',
+    ))
+
+    launch_description.add_action(DeclareLaunchArgument(
         'roi_adaptive_enabled',
         default_value='false',
         description='Enable value-dependent region-of-interest weighting '
@@ -101,6 +117,12 @@ def generate_launch_description() -> LaunchDescription:
                     'planner_type': LaunchConfiguration('planner'),
                     'rng_seed': ParameterValue(
                         LaunchConfiguration('rng_seed'), value_type=int),
+                    'planning_horizon': ParameterValue(
+                        LaunchConfiguration('planning_horizon'),
+                        value_type=int),
+                    'planning_time_s': ParameterValue(
+                        LaunchConfiguration('planning_time_s'),
+                        value_type=float),
                     'roi_adaptive_enabled': ParameterValue(
                         LaunchConfiguration('roi_adaptive_enabled'),
                         value_type=bool),
