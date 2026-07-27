@@ -116,6 +116,12 @@ class PathPlanner(Node):
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
         self.declare_parameter('lane_spacing', 0.18)
 
+        # Wall clearance (m) for the lawnmower's short-end turn-arounds only
+        # (the long-side margin still uses start_x). Independent of start_y so
+        # the robot's actual move_to_start position is unaffected.
+        # Only used when planner_type='lawnmower'.
+        self.declare_parameter('lawnmower_end_margin', 0.15)
+
         # Planning horizon (number of nodes/edges from the root) per cycle,
         # B in the paper (Section 4.1). Nodes whose depth reaches B enter the
         # closed set and represent complete paths, which is then sent to
@@ -463,6 +469,7 @@ class PathPlanner(Node):
             y_max=height * self.cell_size,
             lane_spacing=self.get_parameter('lane_spacing').value,
             waypoint_spacing=self.get_parameter('delta').value,
+            end_margin=self.get_parameter('lawnmower_end_margin').value,
         )
         self.get_logger().info(
             f'Lawnmower coverage path with {len(path)} waypoints.')

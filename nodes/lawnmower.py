@@ -11,13 +11,14 @@ def generate_lawnmower_path(
     y_max: float,
     lane_spacing: float,
     waypoint_spacing: float,
+    end_margin: float,
 ) -> List[np.ndarray]:
     """Builds a coverage path over a rectangular area (no obstacles).
 
     Lanes run along y (the tank's long axis) and step across in x.
     """
     margin_x = float(x_start[0])
-    margin_y = float(x_start[1])
+    margin_y = end_margin
 
     x_lo, x_hi = margin_x, max(margin_x, x_max - margin_x)
     y_lo, y_hi = margin_y, max(margin_y, y_max - margin_y)
