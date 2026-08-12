@@ -3,10 +3,12 @@ import math
 
 import rclpy
 from geometry_msgs.msg import (
+    Point,
     PointStamped,
     Pose,
     PoseStamped,
     PoseWithCovarianceStamped,
+    Quaternion,
 )
 from hippo_control_msgs.msg import YawTarget
 from nav_msgs.msg import Path
@@ -29,6 +31,18 @@ class PathFollower(Node):
         self.position_pub = self.create_publisher(
             PointStamped, 'position_controller/setpoint', 1)
         self.path_pub = self.create_publisher(Path, '~/current_path', 1)
+
+        # Sensor mount offset relative to base_link, same values as
+        # hippo_common's ir_sensor tf. Path waypoints are planned for the
+        # sensor position, so this has to be subtracted from the setpoint
+        # sent to position_controller.
+        self.declare_parameter('ir_sensor.x', 0.0)
+        self.declare_parameter('ir_sensor.y', 0.0)
+        self.declare_parameter('ir_sensor.z', 0.0)
+        self.ir_sensor_offset_x = self.get_parameter('ir_sensor.x').value
+        self.ir_sensor_offset_y = self.get_parameter('ir_sensor.y').value
+        self.ir_sensor_offset_z = self.get_parameter('ir_sensor.z').value
+
         self.look_ahead_distance = 0.4
         self.target_index = 0
         self.path: list[PoseStamped] = None
@@ -100,7 +114,8 @@ class PathFollower(Node):
                 reached_end = True
                 break
         target_pose = self.path[self.target_index].pose
-        self.position_target = target_pose.position
+        self.position_target = self._apply_sensor_offset(
+            target_pose.position, current_pose.orientation)
         if reached_end:
             q = target_pose.orientation
             _, _, self.yaw_target = euler_from_quaternion([q.x, q.y, q.z, q.w])
@@ -109,6 +124,22 @@ class PathFollower(Node):
                 target_pose.position.y - current_position.y,
                 target_pose.position.x - current_position.x)
         return True
+
+    def _apply_sensor_offset(self, target: Point,
+                              orientation: Quaternion) -> Point:
+        # target is the desired sensor position. position_controller drives
+        # base_link though, so the yaw-rotated sensor offset is subtracted
+        # here to get the base_link setpoint. Roll/pitch are ignored, the
+        # BlueROV stabilizes itself in those axes.
+        _, _, yaw = euler_from_quaternion(
+            [orientation.x, orientation.y, orientation.z, orientation.w])
+        dx = (math.cos(yaw) * self.ir_sensor_offset_x -
+              math.sin(yaw) * self.ir_sensor_offset_y)
+        dy = (math.sin(yaw) * self.ir_sensor_offset_x +
+              math.cos(yaw) * self.ir_sensor_offset_y)
+        return Point(x=target.x - dx,
+                     y=target.y - dy,
+                     z=target.z - self.ir_sensor_offset_z)
 
 
 def main():

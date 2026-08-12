@@ -127,6 +127,11 @@ def generate_launch_description():
     args.add('roi_threshold')
     args.add('roi_beta')
     args['use_sim_time'] = 'true'
+    # ir_measurement_sim_node.py does not apply the sensor offset, so
+    # path_follower.py must not apply it here either. Otherwise the
+    # simulated vehicle would aim off from where it actually measures.
+    args['transformations_file'] = str(
+        get_package_share_path('ipp') / 'config/ir_sensor_offset_zero.yaml')
     launch_description.add_action(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(

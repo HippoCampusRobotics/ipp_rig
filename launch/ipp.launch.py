@@ -84,6 +84,9 @@ def generate_launch_description() -> LaunchDescription:
 
     package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
+    transformations_file_path = str(
+        get_package_share_path('hippo_common') /
+        'config/transformations_bluerov_default.yaml')
 
     group = GroupAction([
         PushROSNamespace(LaunchConfiguration('vehicle_name')),
@@ -142,6 +145,8 @@ def generate_launch_description() -> LaunchDescription:
             executable='path_follower.py',
             package='ipp',
             parameters=[
+                LaunchConfiguration('transformations_file',
+                                    default=transformations_file_path),
                 {
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
                 },
