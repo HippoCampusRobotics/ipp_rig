@@ -208,7 +208,7 @@ Visualization Manager:
       Name: Marker
       Namespaces:
         bluerov: true
-        pool: true
+        tank: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -412,21 +412,26 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: 0
-      Class: rviz_default_plugins/TopDownOrtho
+      Class: rviz_default_plugins/Orbit
+      Distance: 6.123653411865234
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
+      Focal Point:
+        X: 1.6441442966461182
+        Y: 2.7153267860412598
+        Z: -1.0234400033950806
+      Focal Shape Fixed Size: false
+      Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 95.52715301513672
+      Pitch: 0.6647963523864746
       Target Frame: <Fixed Frame>
-      Value: TopDownOrtho (rviz_default_plugins)
-      X: 1.6441442966461182
-      Y: 2.7153267860412598
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 3.9004037380218506
     Saved: ~
 Window Geometry:
   Displays:

@@ -127,4 +127,19 @@ def generate_launch_description() -> LaunchDescription:
             ),
         ]))
 
+    ############################################################################
+    # RVIZ VISUALS (tank mesh + BlueROV mesh, driven by vision_pose_cov)
+    ############################################################################
+    launch_description.add_action(
+        GroupAction([
+            PushROSNamespace(LaunchConfiguration('vehicle_name')),
+            Node(
+                executable='robot_marker_publisher',
+                package='ipp_rviz_visuals',
+                parameters=[{
+                    'use_sim_time': False
+                }],
+            ),
+        ]))
+
     return launch_description
