@@ -80,7 +80,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/path_follower/current_path
+        Value: /bluerov00/path_follower/current_path
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
@@ -93,7 +93,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/path_planner/marker
+        Value: /bluerov00/path_planner/marker
       Value: true
     - Alpha: 1
       Class: rviz_default_plugins/PointStamped
@@ -108,7 +108,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/position_controller/setpoint
+        Value: /bluerov00/position_controller/setpoint
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
@@ -120,7 +120,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/scenario_node/marker_array
+        Value: /bluerov00/scenario_node/marker_array
       Value: true
     - Alpha: 1
       Axes Length: 0.30000001192092896
@@ -155,7 +155,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/vision_pose_cov
+        Value: /bluerov00/vision_pose_cov
       Value: true
     - Alpha: 0.30000001192092896
       Binary representation: false
@@ -171,13 +171,13 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/occupancy_grid
+        Value: /bluerov00/occupancy_grid
       Update Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/occupancy_grid_updates
+        Value: /bluerov00/occupancy_grid_updates
       Use Timestamp: false
       Value: true
     - Alpha: 0.30000001192092896
@@ -215,7 +215,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/robot_marker
+        Value: /bluerov00/robot_marker
       Value: true
     - Class: rviz_2d_overlay_plugins/PieChartOverlay
       Enabled: true
@@ -225,7 +225,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/scenario_node/viewpoint_progress
+        Value: /bluerov00/scenario_node/viewpoint_progress
       Value: true
       auto color change: true
       background color: 0; 0; 0
@@ -262,7 +262,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/scenario_node/overlay_status_text
+        Value: /bluerov00/scenario_node/overlay_status_text
       Value: true
       font: DejaVu Sans Mono
       height: 128
@@ -290,7 +290,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/scenario_node/overlay_t_finish_text
+        Value: /bluerov00/scenario_node/overlay_t_finish_text
       Value: true
       font: DejaVu Sans Mono
       height: 128
@@ -301,6 +301,72 @@ Visualization Manager:
       ver_alignment: top
       ver_dist: 0
       width: 128
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: RGB8
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 0.015
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: BeliefMean
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 3
+      Size (m): 0.05000000074505806
+      Style: Tiles
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /bluerov00/belief/mean_cloud
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 0
+        Min Value: 0
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: false
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 1
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: BeliefVariance
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 3
+      Size (m): 0.05000000074505806
+      Style: Tiles
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /bluerov00/belief/variance_cloud
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

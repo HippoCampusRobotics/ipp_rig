@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import math
 
+import numpy as np
 import rclpy
 from geometry_msgs.msg import (
     Point,
@@ -15,7 +16,7 @@ from nav_msgs.msg import Path
 from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
 from std_srvs.srv import Trigger
-from tf_transformations import euler_from_quaternion
+from tf_transformations import euler_from_quaternion, quaternion_matrix
 
 
 class PathFollower(Node):
@@ -128,18 +129,18 @@ class PathFollower(Node):
     def _apply_sensor_offset(self, target: Point,
                               orientation: Quaternion) -> Point:
         # target is the desired sensor position. position_controller drives
-        # base_link though, so the yaw-rotated sensor offset is subtracted
-        # here to get the base_link setpoint. Roll/pitch are ignored, the
-        # BlueROV stabilizes itself in those axes.
-        _, _, yaw = euler_from_quaternion(
-            [orientation.x, orientation.y, orientation.z, orientation.w])
-        dx = (math.cos(yaw) * self.ir_sensor_offset_x -
-              math.sin(yaw) * self.ir_sensor_offset_y)
-        dy = (math.sin(yaw) * self.ir_sensor_offset_x +
-              math.cos(yaw) * self.ir_sensor_offset_y)
-        return Point(x=target.x - dx,
-                     y=target.y - dy,
-                     z=target.z - self.ir_sensor_offset_z)
+        # base_link though, so the rotated sensor offset is subtracted here
+        # to get the base_link setpoint.
+        rotation = quaternion_matrix(
+            [orientation.x, orientation.y, orientation.z,
+             orientation.w])[:3, :3]
+        offset = rotation @ np.array([
+            self.ir_sensor_offset_x, self.ir_sensor_offset_y,
+            self.ir_sensor_offset_z
+        ])
+        return Point(x=target.x - offset[0],
+                     y=target.y - offset[1],
+                     z=target.z - offset[2])
 
 
 def main():
