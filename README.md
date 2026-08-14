@@ -93,7 +93,7 @@ nodes/
   position_controller.py — P-control in x/y/z
   yaw_controller.py      — P-control for yaw
   vision_pose_bridge.py  — republishes ground_truth/odometry (nav_msgs/Odometry)
-                           as vision_pose_cov (PoseWithCovarianceStamped);
+                           as vision_pose_cov_bridged (PoseWithCovarianceStamped);
                            real hardware only, started by experiment.launch.py
 launch/
   simulation.launch.py   — Gazebo plus all IPP nodes (sim only)
@@ -108,3 +108,5 @@ config/
 ```
 
 RViz visual markers (water tank walls, BlueROV mesh) are published by the separate `ipp_rviz_visuals` package (`src/robot_marker_publisher.cpp`). That package is launched automatically by `simulation.launch.py`.
+
+> **Note:** On real hardware, `vision_pose_cov` has two publishers: `qualisys_bridge` (motion capture, gives the wrong message type for the IPP nodes) and `vision_pose_bridge.py` (this package, converted from `ground_truth/odometry`). Two publishers on one topic would mix both into every subscriber, so `experiment.launch.py` remaps all IPP nodes from `vision_pose_cov` to `vision_pose_cov_bridged` — the topic `vision_pose_bridge.py` actually publishes. This remap only happens in `experiment.launch.py`; in simulation, `vision_pose_cov` has just the one publisher and nothing is remapped.

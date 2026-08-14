@@ -8,7 +8,7 @@ from launch.actions import (
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node, PushROSNamespace
+from launch_ros.actions import Node, PushROSNamespace, SetRemap
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -106,14 +106,22 @@ def generate_launch_description() -> LaunchDescription:
     args.add('roi_beta')
     args['use_sim_time'] = 'false'
     launch_description.add_action(
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                str(get_package_share_path('ipp') / 'launch/ipp.launch.py')),
-            launch_arguments=args.items(),
-        ))
+        GroupAction([
+            # qualisys_bridge already publishes its own vision_pose_cov, so
+            # the IPP nodes are remapped to the bridge node's topic below
+            # instead, to avoid two publishers on the same topic
+            SetRemap('vision_pose_cov', 'vision_pose_cov_bridged'),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(
+                        get_package_share_path('ipp') /
+                        'launch/ipp.launch.py')),
+                launch_arguments=args.items(),
+            ),
+        ]))
 
     ############################################################################
-    # VISION POSE BRIDGE (ground_truth/odometry -> vision_pose_cov,
+    # VISION POSE BRIDGE (ground_truth/odometry -> vision_pose_cov_bridged,
     # hardware only. qualisys_bridge publishes nav_msgs/Odometry, the IPP
     # nodes need geometry_msgs/PoseWithCovarianceStamped)
     ############################################################################
@@ -155,11 +163,13 @@ def generate_launch_description() -> LaunchDescription:
         ]))
 
     ############################################################################
-    # RVIZ VISUALS (tank mesh + BlueROV mesh, driven by vision_pose_cov)
+    # RVIZ VISUALS (tank mesh + BlueROV mesh, driven by vision_pose_cov,
+    # remapped to vision_pose_cov_bridged for the same reason as above)
     ############################################################################
     launch_description.add_action(
         GroupAction([
             PushROSNamespace(LaunchConfiguration('vehicle_name')),
+            SetRemap('vision_pose_cov', 'vision_pose_cov_bridged'),
             Node(
                 executable='robot_marker_publisher',
                 package='ipp_rviz_visuals',

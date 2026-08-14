@@ -20,7 +20,7 @@ class VisionPoseBridge(Node):
             qos_profile=sub_qos)
         self.vision_pose_pub = self.create_publisher(
             msg_type=PoseWithCovarianceStamped,
-            topic='vision_pose_cov',
+            topic='vision_pose_cov_bridged',
             qos_profile=1)
 
     def on_odometry(self, msg: Odometry):

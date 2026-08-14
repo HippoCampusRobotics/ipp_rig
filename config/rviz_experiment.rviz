@@ -155,7 +155,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /bluerov01/vision_pose_cov
+        Value: /bluerov01/vision_pose_cov_bridged
       Value: true
     - Alpha: 0.30000001192092896
       Binary representation: false
