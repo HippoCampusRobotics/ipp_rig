@@ -17,68 +17,78 @@ def generate_launch_description() -> LaunchDescription:
     launch_description.add_action(
         DeclareLaunchArgument(
             'vehicle_name',
-            default_value='bluerov00',
+            default_value='bluerov01',
             description='Vehicle name used as namespace.',
         ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'scenario',
-        default_value='',
-        description='Name of a scenario YAML in ipp/config/ (e.g. scenario_1). '
-                    'Leave empty to run without obstacles.',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'planner',
-        default_value='rig',
-        choices=['rig', 'lawnmower', 'random'],
-        description="Path planner mode: 'rig' (RIG-tree), 'lawnmower' "
-                    "(non-informative coverage baseline), or 'random' "
-                    '(RIG-tree without variance information).',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'rng_seed',
-        default_value='-1',
-        description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
-                    'unseeded.',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'planning_horizon',
-        default_value='6',
-        description='B (max tree node count per planning cycle).',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'planning_time_s',
-        default_value='2.0',
-        description='Anytime wall-clock budget (s) per planning cycle.',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'roi_adaptive_enabled',
-        default_value='false',
-        description='Enable value-dependent region-of-interest weighting '
-                    '(Hitz et al. 2017, Sec. 4.3).',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'roi_threshold',
-        default_value='0.008',
-        description='f_th (Hitz et al. 2017, Eq. 14), only used when '
-                    'roi_adaptive_enabled.',
-    ))
-    launch_description.add_action(DeclareLaunchArgument(
-        'roi_beta',
-        default_value='2.0',
-        description='beta (Hitz et al. 2017, Eq. 15), only used when '
-                    'roi_adaptive_enabled.',
-    ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'scenario',
+            default_value='',
+            description=
+            'Name of a scenario YAML in ipp/config/ (e.g. scenario_1). '
+            'Leave empty to run without obstacles.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'planner',
+            default_value='rig',
+            choices=['rig', 'lawnmower', 'random'],
+            description="Path planner mode: 'rig' (RIG-tree), 'lawnmower' "
+            "(non-informative coverage baseline), or 'random' "
+            '(RIG-tree without variance information).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'rng_seed',
+            default_value='-1',
+            description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
+            'unseeded.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'planning_horizon',
+            default_value='6',
+            description='B (max tree node count per planning cycle).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'planning_time_s',
+            default_value='2.0',
+            description='Anytime wall-clock budget (s) per planning cycle.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_adaptive_enabled',
+            default_value='false',
+            description='Enable value-dependent region-of-interest weighting '
+            '(Hitz et al. 2017, Sec. 4.3).',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_threshold',
+            default_value='0.008',
+            description='f_th (Hitz et al. 2017, Eq. 14), only used when '
+            'roi_adaptive_enabled.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'roi_beta',
+            default_value='2.0',
+            description='beta (Hitz et al. 2017, Eq. 15), only used when '
+            'roi_adaptive_enabled.',
+        ))
 
     belief_params_file_path = str(
         get_package_share_path('scalar_field_belief') /
         'config/belief_params_default.yaml')
-    launch_description.add_action(DeclareLaunchArgument(
-        'belief_params',
-        default_value=belief_params_file_path,
-        description='Params file for scalar_field_belief_node.py. Its '
-                    'x_min/x_max/y_min/y_max must match the real tank and '
-                    "ipp's mapping_params.yaml tank_size_x/y.",
-    ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'belief_params',
+            default_value=belief_params_file_path,
+            description='Params file for scalar_field_belief_node.py. Its '
+            'x_min/x_max/y_min/y_max must match the real tank and '
+            "ipp's mapping_params.yaml tank_size_x/y.",
+        ))
 
     ############################################################################
     # IPP (mapper, path_planner, path_follower, position_controller,
@@ -101,6 +111,23 @@ def generate_launch_description() -> LaunchDescription:
                 str(get_package_share_path('ipp') / 'launch/ipp.launch.py')),
             launch_arguments=args.items(),
         ))
+
+    ############################################################################
+    # VISION POSE BRIDGE (ground_truth/odometry -> vision_pose_cov,
+    # hardware only. qualisys_bridge publishes nav_msgs/Odometry, the IPP
+    # nodes need geometry_msgs/PoseWithCovarianceStamped)
+    ############################################################################
+    launch_description.add_action(
+        GroupAction([
+            PushROSNamespace(LaunchConfiguration('vehicle_name')),
+            Node(
+                executable='vision_pose_bridge.py',
+                package='ipp',
+                parameters=[{
+                    'use_sim_time': False
+                }],
+            ),
+        ]))
 
     ############################################################################
     # GP BELIEF

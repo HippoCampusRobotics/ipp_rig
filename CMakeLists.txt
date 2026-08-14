@@ -21,6 +21,7 @@ install(PROGRAMS
   nodes/yaw_controller.py
   nodes/rig_tree.py
   nodes/lawnmower.py
+  nodes/vision_pose_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

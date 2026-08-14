@@ -92,6 +92,9 @@ nodes/
   obstacle_publisher.py  — loads a scenario YAML and publishes polygon obstacles at 10 Hz
   position_controller.py — P-control in x/y/z
   yaw_controller.py      — P-control for yaw
+  vision_pose_bridge.py  — republishes ground_truth/odometry (nav_msgs/Odometry)
+                           as vision_pose_cov (PoseWithCovarianceStamped);
+                           real hardware only, started by experiment.launch.py
 launch/
   simulation.launch.py   — Gazebo plus all IPP nodes (sim only)
   ipp.launch.py          — IPP nodes only
