@@ -138,11 +138,27 @@ def generate_launch_description() -> LaunchDescription:
         ]))
 
     ############################################################################
+    # IR MEASUREMENT BRIDGE (per-channel IR topics -> ir_measurement +
+    # trigger_ir_measurement, hardware only. The real IR driver only streams
+    # continuously and has no trigger service of its own, so this node fuses
+    # the 9 channels on demand and offers the pull-based Trigger service that
+    # path_planner.py already expects. ir_channel_topics are placeholders,
+    # confirm against the real driver before running on hardware.)
+    ############################################################################
+    launch_description.add_action(
+        GroupAction([
+            PushROSNamespace(LaunchConfiguration('vehicle_name')),
+            Node(
+                executable='ir_measurement_bridge.py',
+                package='ipp',
+                parameters=[{
+                    'use_sim_time': False
+                }],
+            ),
+        ]))
+
+    ############################################################################
     # GP BELIEF
-    # The real IR sensor driver is not part of this workspace and has to be
-    # started separately. It must publish ir_measurement (ScalarMeasurement,
-    # frame_id='map') and offer a trigger_ir_measurement (std_srvs/Trigger)
-    # service, both in this same vehicle_name namespace.
     ############################################################################
     launch_description.add_action(
         GroupAction([

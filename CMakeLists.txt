@@ -22,6 +22,7 @@ install(PROGRAMS
   nodes/rig_tree.py
   nodes/lawnmower.py
   nodes/vision_pose_bridge.py
+  nodes/ir_measurement_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
