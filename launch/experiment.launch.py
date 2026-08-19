@@ -139,11 +139,11 @@ def generate_launch_description() -> LaunchDescription:
 
     ############################################################################
     # IR MEASUREMENT BRIDGE (per-channel IR topics -> ir_measurement +
-    # trigger_ir_measurement, hardware only. The real IR driver only streams
-    # continuously and has no trigger service of its own, so this node fuses
-    # the 9 channels on demand and offers the pull-based Trigger service that
-    # path_planner.py already expects. ir_channel_topics are placeholders,
-    # confirm against the real driver before running on hardware.)
+    # trigger_ir_measurement, hardware only. The real IR driver (ads1115_publisher)
+    # only streams continuously on /photodiode_array/diode_1..9 and has no
+    # trigger service of its own, so this node fuses the 9 channels on demand
+    # and offers the pull-based Trigger service that path_planner.py already
+    # expects.)
     ############################################################################
     launch_description.add_action(
         GroupAction([

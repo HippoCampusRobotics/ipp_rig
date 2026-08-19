@@ -5,7 +5,7 @@ import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.node import Node
 from scalar_field_interfaces.msg import ScalarMeasurement
-from std_msgs.msg import Float64
+from std_msgs.msg import Float32
 from std_srvs.srv import Trigger
 
 NUM_CHANNELS = 9
@@ -25,7 +25,8 @@ class IrMeasurementBridge(Node):
     def __init__(self):
         super().__init__(node_name='ir_measurement_bridge')
 
-        default_topics = [f'ir_channel_{i}' for i in range(NUM_CHANNELS)]
+        default_topics = [
+            f'/photodiode_array/diode_{i + 1}' for i in range(NUM_CHANNELS)]
         self.declare_parameter('ir_channel_topics', default_topics)
         self.declare_parameter('pose_topic', 'vision_pose_cov_bridged')
         self.declare_parameter('measurement_topic', 'ir_measurement')
@@ -49,23 +50,23 @@ class IrMeasurementBridge(Node):
 
         self._channel_subs = [
             self.create_subscription(
-                Float64, channel_topics[0], lambda msg: self._on_channel(0, msg), 10),
+                Float32, channel_topics[0], lambda msg: self._on_channel(0, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[1], lambda msg: self._on_channel(1, msg), 10),
+                Float32, channel_topics[1], lambda msg: self._on_channel(1, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[2], lambda msg: self._on_channel(2, msg), 10),
+                Float32, channel_topics[2], lambda msg: self._on_channel(2, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[3], lambda msg: self._on_channel(3, msg), 10),
+                Float32, channel_topics[3], lambda msg: self._on_channel(3, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[4], lambda msg: self._on_channel(4, msg), 10),
+                Float32, channel_topics[4], lambda msg: self._on_channel(4, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[5], lambda msg: self._on_channel(5, msg), 10),
+                Float32, channel_topics[5], lambda msg: self._on_channel(5, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[6], lambda msg: self._on_channel(6, msg), 10),
+                Float32, channel_topics[6], lambda msg: self._on_channel(6, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[7], lambda msg: self._on_channel(7, msg), 10),
+                Float32, channel_topics[7], lambda msg: self._on_channel(7, msg), 10),
             self.create_subscription(
-                Float64, channel_topics[8], lambda msg: self._on_channel(8, msg), 10),
+                Float32, channel_topics[8], lambda msg: self._on_channel(8, msg), 10),
         ]
 
         pose_topic = str(self.get_parameter('pose_topic').value)
@@ -78,7 +79,7 @@ class IrMeasurementBridge(Node):
         self._trigger_srv = self.create_service(
             Trigger, self._trigger_service_name, self._handle_trigger)
 
-    def _on_channel(self, index: int, msg: Float64):
+    def _on_channel(self, index: int, msg: Float32):
         self._channel_buffers[index].append((self.get_clock().now(), msg.data))
 
     def _on_pose(self, msg: PoseWithCovarianceStamped):
