@@ -191,7 +191,7 @@ class PathPlanner(Node):
         # sigma come back in the wrong physical units (volts). Below this
         # count, roi_adaptive_enabled falls back to uniform weighting,
         # same as if it were disabled.
-        self.declare_parameter('roi_min_measurements', 20)
+        self.declare_parameter('roi_min_measurements', 40)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
