@@ -79,6 +79,7 @@ class PathPlanner(Node):
         self._planning_active: bool = False
         self._planning_cancel_event: threading.Event = None
         self._last_replan_time: float = 0.0
+        self._n_measurements: int = 0
 
         # Debugging Variables ----------
         self._planning_cycle: int = 0
@@ -183,6 +184,14 @@ class PathPlanner(Node):
         # std-dev used to classify a grid point as confidently below
         # roi_threshold
         self.declare_parameter('roi_beta', 2.0)
+
+        # Minimum number of measurements before the ROI mask is trusted.
+        # With very few measurements, the belief's target standardizer
+        # has not seen a representative spread of values yet, so mean and
+        # sigma come back in the wrong physical units (volts). Below this
+        # count, roi_adaptive_enabled falls back to uniform weighting,
+        # same as if it were disabled.
+        self.declare_parameter('roi_min_measurements', 20)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
@@ -537,7 +546,13 @@ class PathPlanner(Node):
         if self.state != State.EXECUTING:
             return
         if self.measurement_client.service_is_ready():
-            self.measurement_client.call_async(Trigger.Request())
+            future = self.measurement_client.call_async(Trigger.Request())
+            future.add_done_callback(self._on_measurement_triggered)
+
+    def _on_measurement_triggered(self, future):
+        result = future.result()
+        if result is not None and result.success:
+            self._n_measurements += 1
 
     def _build_info_grid(self) -> list:
         """Builds the fixed grid of points used to score how informative a
@@ -576,6 +591,7 @@ class PathPlanner(Node):
         roi_adaptive_enabled = self.get_parameter('roi_adaptive_enabled').value
         roi_threshold = self.get_parameter('roi_threshold').value
         roi_beta = self.get_parameter('roi_beta').value
+        roi_min_measurements = self.get_parameter('roi_min_measurements').value
 
         n_grid = len(grid_points)
         # Grid queries are identical on every call this cycle, so build
@@ -648,7 +664,7 @@ class PathPlanner(Node):
 
             # Value-dependent region-of-interest weighting (Hitz et al. 2017,
             # Sec. 4.3, Eq. 14-15)
-            if roi_adaptive_enabled:
+            if roi_adaptive_enabled and self._n_measurements >= roi_min_measurements:
                 mean_grid = np.asarray(result.mean[:n_grid])
                 sigma_grid = np.sqrt(
                     np.clip(np.diag(cov[:n_grid, :n_grid]), 0.0, None))
