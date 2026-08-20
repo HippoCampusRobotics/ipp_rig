@@ -19,8 +19,6 @@ install(PROGRAMS
   nodes/path_planner.py
   nodes/position_controller.py
   nodes/yaw_controller.py
-  nodes/roll_controller.py
-  nodes/pitch_controller.py
   nodes/rig_tree.py
   nodes/lawnmower.py
   nodes/vision_pose_bridge.py

@@ -158,31 +158,6 @@ def generate_launch_description() -> LaunchDescription:
         ]))
 
     ############################################################################
-    # ATTITUDE STABILIZATION (roll + pitch, hardware only. The simulated
-    # vehicle is passively stable in roll/pitch, so these only run here and
-    # not in simulation.launch.py / ipp.launch.py)
-    ############################################################################
-    launch_description.add_action(
-        GroupAction([
-            PushROSNamespace(LaunchConfiguration('vehicle_name')),
-            SetRemap('vision_pose_cov', 'vision_pose_cov_bridged'),
-            Node(
-                executable='roll_controller.py',
-                package='ipp',
-                parameters=[{
-                    'use_sim_time': False
-                }],
-            ),
-            Node(
-                executable='pitch_controller.py',
-                package='ipp',
-                parameters=[{
-                    'use_sim_time': False
-                }],
-            ),
-        ]))
-
-    ############################################################################
     # GP BELIEF
     ############################################################################
     launch_description.add_action(
