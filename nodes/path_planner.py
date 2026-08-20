@@ -178,12 +178,12 @@ class PathPlanner(Node):
 
         # f_th in Hitz et al. Eq. 14: field value above which a grid point
         # counts as "interesting"
-        self.declare_parameter('roi_threshold', 0.008)
+        self.declare_parameter('roi_threshold', 0.0010)
 
         # beta in Hitz et al. Eq. 15: confidence margin on the posterior
         # std-dev used to classify a grid point as confidently below
         # roi_threshold
-        self.declare_parameter('roi_beta', 2.0)
+        self.declare_parameter('roi_beta', 1.0)
 
         # Minimum number of measurements before the ROI mask is trusted.
         # With very few measurements, the belief's target standardizer
