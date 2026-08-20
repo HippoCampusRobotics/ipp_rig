@@ -44,6 +44,8 @@ class PositionController(Node):
         self.declare_parameter('ki_z', 0.1)
         self.declare_parameter('kd_z', 2.0)
 
+        self.declare_parameter('max_thrust_xy', 0.3)
+
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
         self.get_logger().warn('setpoint timed out. waiting for new setpoints.')
@@ -120,7 +122,7 @@ class PositionController(Node):
         # Thrust normalisation in xy plane
         thrust_x = math.cos(-yaw) * x - math.sin(-yaw) * y
         thrust_y = math.sin(-yaw) * x + math.cos(-yaw) * y
-        max_thrust_xy = 0.3
+        max_thrust_xy = self.get_parameter('max_thrust_xy').value
         thrust_xy_norm = math.hypot(thrust_x, thrust_y)
         if thrust_xy_norm > max_thrust_xy:
             scale = max_thrust_xy / thrust_xy_norm

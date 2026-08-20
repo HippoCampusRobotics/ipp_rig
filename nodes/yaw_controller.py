@@ -36,10 +36,24 @@ class YawController(Node):
                                                 topic='torque_setpoint',
                                                 qos_profile=1)
 
+        self.declare_parameter('kp', 0.1)
+        self.declare_parameter('ki', 0.0)
+        self.declare_parameter('kd', 0.0)
+
+        self.last_time = None
+        self.integral = 0.0
+        self.last_error = 0.0
+
+    def reset_pid(self):
+        self.last_time = None
+        self.integral = 0.0
+        self.last_error = 0.0
+
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
         self.get_logger().warn('Setpoint timed out. Waiting for new setpoints')
         self.setpoint_timed_out = True
+        self.reset_pid()
 
     def wrap_pi(self, value: float):
         """Normalize the angle to the range [-pi; pi]."""
@@ -53,6 +67,7 @@ class YawController(Node):
         self.timeout_timer.reset()
         if self.setpoint_timed_out:
             self.get_logger().info('Setpoint received! Getting back to work.')
+            self.reset_pid()
         self.setpoint_timed_out = False
         self.setpoint = self.wrap_pi(msg.yaw_target)
 
@@ -73,8 +88,25 @@ class YawController(Node):
         # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
 
-        p_gain = 0.1  # turned out to be a good value
-        return p_gain * error
+        now = self.get_clock().now()
+        if self.last_time is None:
+            dt = 0.0
+        else:
+            dt = (now - self.last_time).nanoseconds * 1e-9
+
+        if dt > 0.0:
+            self.integral += error * dt
+            derivative = (error - self.last_error) / dt
+        else:
+            derivative = 0.0
+
+        self.last_time = now
+        self.last_error = error
+
+        kp = self.get_parameter('kp').value
+        ki = self.get_parameter('ki').value
+        kd = self.get_parameter('kd').value
+        return kp * error + ki * self.integral + kd * derivative
 
     def publish_control_output(self, control_output: float,
                                timestamp: rclpy.time.Time):
