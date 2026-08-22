@@ -94,7 +94,7 @@ The robot is exploring a scalar field (for example light or temperature). It tak
 
 Only one of these two nodes ever runs at a time, since each is started by its own launch file, so there is never more than one publisher on `ir_measurement`.
 
-On real hardware the IR sensor sits a bit off from the point the vehicle's pose is tracked at. `path_follower.py` corrects for this with an `ir_sensor.x/y/z` offset, so it steers the sensor itself (not just the tracked point) to each waypoint. This offset comes from `transformations_bluerov_default.yaml` (package `hippo_common`) on real hardware, and is set to zero by `config/ir_sensor_offset_zero.yaml` in simulation, since `ir_measurement_sim_node.py` samples exactly at the vehicle's tracked pose with no offset.
+On real hardware the IR sensor sits a bit off from the point the vehicle's pose is tracked at. `ir_measurement_bridge.py` corrects for this with an `ir_sensor.x/y/z` offset (from `transformations_bluerov_default.yaml`, package `hippo_common`), rotating it into the current orientation and adding it to the tracked pose before publishing a measurement, so the position reported to the GP is the sensor's actual position, not the tracked point. `path_follower.py` and `position_controller.py` are not affected by this offset at all - they always drive the tracked point straight to each waypoint. In simulation, `ir_measurement_sim_node.py` samples exactly at the vehicle's tracked pose with no offset, since the offset is zero there anyway.
 
 ## Scenarios
 

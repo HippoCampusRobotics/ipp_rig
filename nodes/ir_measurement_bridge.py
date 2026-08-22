@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 from collections import deque
 
+import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import Point, Pose, PoseWithCovarianceStamped
 from rclpy.node import Node
 from scalar_field_interfaces.msg import ScalarMeasurement
 from std_msgs.msg import Float32
 from std_srvs.srv import Trigger
+from tf_transformations import quaternion_matrix
 
 NUM_CHANNELS = 9
 
@@ -33,6 +35,18 @@ class IrMeasurementBridge(Node):
         self.declare_parameter('trigger_service_name', 'trigger_ir_measurement')
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('fusion_window_s', 0.2)
+
+        # Sensor mount offset relative to base_link, same values as
+        # hippo_common's ir_sensor tf. Applied to the vehicle pose to get
+        # the true sensor position reported in each measurement.
+        self.declare_parameter('ir_sensor.x', 0.0)
+        self.declare_parameter('ir_sensor.y', 0.0)
+        self.declare_parameter('ir_sensor.z', 0.0)
+        self._ir_sensor_offset = np.array([
+            self.get_parameter('ir_sensor.x').value,
+            self.get_parameter('ir_sensor.y').value,
+            self.get_parameter('ir_sensor.z').value,
+        ])
 
         channel_topics = list(self.get_parameter('ir_channel_topics').value)
         if len(channel_topics) != NUM_CHANNELS:
@@ -85,6 +99,18 @@ class IrMeasurementBridge(Node):
     def _on_pose(self, msg: PoseWithCovarianceStamped):
         self._current_pose = msg.pose.pose
 
+    def _sensor_pose(self) -> Pose:
+        orientation = self._current_pose.orientation
+        rotation = quaternion_matrix(
+            [orientation.x, orientation.y, orientation.z,
+             orientation.w])[:3, :3]
+        offset = rotation @ self._ir_sensor_offset
+        position = self._current_pose.position
+        return Pose(position=Point(x=position.x + offset[0],
+                                    y=position.y + offset[1],
+                                    z=position.z + offset[2]),
+                    orientation=orientation)
+
     def _drop_stale(self, buffer: deque):
         cutoff = self.get_clock().now() - rclpy.time.Duration(
             seconds=self._fusion_window_s)
@@ -113,7 +139,7 @@ class IrMeasurementBridge(Node):
         measurement = ScalarMeasurement()
         measurement.header.stamp = self.get_clock().now().to_msg()
         measurement.header.frame_id = self._frame_id
-        measurement.pose = self._current_pose
+        measurement.pose = self._sensor_pose()
         measurement.value = fuse_ir_channels(channel_means)
         measurement.clipped = False
         self._measurement_pub.publish(measurement)

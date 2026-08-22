@@ -81,6 +81,9 @@ def generate_launch_description() -> LaunchDescription:
     belief_params_file_path = str(
         get_package_share_path('scalar_field_belief') /
         'config/belief_params_default.yaml')
+    transformations_file_path = str(
+        get_package_share_path('hippo_common') /
+        'config/transformations_bluerov_default.yaml')
     launch_description.add_action(
         DeclareLaunchArgument(
             'belief_params',
@@ -151,9 +154,12 @@ def generate_launch_description() -> LaunchDescription:
             Node(
                 executable='ir_measurement_bridge.py',
                 package='ipp',
-                parameters=[{
-                    'use_sim_time': False
-                }],
+                parameters=[
+                    transformations_file_path,
+                    {
+                        'use_sim_time': False
+                    },
+                ],
             ),
         ]))
 
