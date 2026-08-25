@@ -39,7 +39,7 @@ class YawController(Node):
         self._declare_parameters()
 
     def _declare_parameters(self):
-        self.declare_parameter('p_gain', 0.1)
+        self.declare_parameter('p_gain', 0.2)
 
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()

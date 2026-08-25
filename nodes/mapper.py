@@ -8,7 +8,7 @@ from rclpy.node import Node
 from ipp_interfaces.msg import PolygonsStamped
 
 OCCUPIED = 100
-DEPTH = -0.5
+DEPTH = -0.7
 
 
 class MapperNode(Node):
@@ -117,7 +117,7 @@ class MapperNode(Node):
         # Inflate obstacles by approximately 30 cm so the planner keeps
         # the robot away from walls and obstacles
         img = cells.astype(dtype='uint8')
-        dilatation_size = int(np.round(0.3 / self.cell_resolution))
+        dilatation_size = int(np.round(0.4 / self.cell_resolution))
 
         # Elliptical kernel for uniform inflation in all directions
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,

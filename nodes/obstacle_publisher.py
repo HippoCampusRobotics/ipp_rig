@@ -7,16 +7,18 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Point32, Polygon
 from ipp_interfaces.msg import PolygonsStamped
 
-DEPTH = -0.5
+DEPTH = -0.7
 PUBLISH_RATE_MS = 100
 
 
 class ObstaclePublisherNode(Node):
+
     def __init__(self):
         super().__init__("obstacle_publisher")
         self.declare_parameter("scenario", "")
 
-        scenario = self.get_parameter("scenario").get_parameter_value().string_value
+        scenario = self.get_parameter(
+            "scenario").get_parameter_value().string_value
         if scenario:
             self.obstacles_ = []
             file_path = self._get_scenario_file_path(scenario)
@@ -25,10 +27,13 @@ class ObstaclePublisherNode(Node):
                 f"Loaded {len(self.obstacles_)} obstacle(s) from scenario '{scenario}'."
             )
             qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1)
-            self.obstacles_pub_ = self.create_publisher(PolygonsStamped, "obstacles", qos)
-            self.timer_ = self.create_timer(PUBLISH_RATE_MS / 1000.0, self._on_timer)
+            self.obstacles_pub_ = self.create_publisher(PolygonsStamped,
+                                                        "obstacles", qos)
+            self.timer_ = self.create_timer(PUBLISH_RATE_MS / 1000.0,
+                                            self._on_timer)
         else:
-            self.get_logger().info("No scenario provided. Running without obstacles.")
+            self.get_logger().info(
+                "No scenario provided. Running without obstacles.")
 
     def _get_scenario_file_path(self, scenario_name):
         share_dir = get_package_share_directory("ipp")

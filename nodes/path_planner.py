@@ -150,12 +150,12 @@ class PathPlanner(Node):
         # The timer checks this condition: it is the paper-conform "budget expended"
         # signal (Section 4.1). Should be smaller than look_ahead_distance of
         # path_follower (0.3 m).
-        self.declare_parameter('goal_tolerance', 0.15)
+        self.declare_parameter('goal_tolerance', 0.3)
 
         # Start position for the move_to_start service.
-        self.declare_parameter('robot_z', -0.5)
-        self.declare_parameter('start_x', 0.35)
-        self.declare_parameter('start_y', 0.35)
+        self.declare_parameter('robot_z', -0.7)
+        self.declare_parameter('start_x', 0.4)
+        self.declare_parameter('start_y', 0.4)
         self.declare_parameter('start_yaw', pi / 2.0)
 
         # Time-based safety fallback, not paper-conform.

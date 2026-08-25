@@ -37,10 +37,10 @@ class PositionController(Node):
         self.last_error_z = 0.0
 
     def _declare_parameters(self):
-        self.declare_parameter('kp_xy', 1.0)
+        self.declare_parameter('kp_xy', 15.0)
         self.declare_parameter('kd_xy', 0.2)
 
-        self.declare_parameter('kp_z', 2.0)
+        self.declare_parameter('kp_z', 3.0)
         self.declare_parameter('ki_z', 0.1)
         self.declare_parameter('kd_z', 2.0)
 
