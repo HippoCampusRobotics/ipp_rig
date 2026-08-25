@@ -36,6 +36,11 @@ class YawController(Node):
                                                 topic='torque_setpoint',
                                                 qos_profile=1)
 
+        self._declare_parameters()
+
+    def _declare_parameters(self):
+        self.declare_parameter('p_gain', 0.1)
+
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
         self.get_logger().warn('Setpoint timed out. Waiting for new setpoints')
@@ -73,7 +78,7 @@ class YawController(Node):
         # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
 
-        p_gain = 0.1  # turned out to be a good value
+        p_gain = self.get_parameter('p_gain').value
         return p_gain * error
 
     def publish_control_output(self, control_output: float,
