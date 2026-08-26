@@ -80,7 +80,7 @@ def generate_launch_description() -> LaunchDescription:
 
     belief_params_file_path = str(
         get_package_share_path('scalar_field_belief') /
-        'config/belief_params_experiment.yaml')
+        'config/belief_params_hardware.yaml')
     transformations_file_path = str(
         get_package_share_path('hippo_common') /
         'config/transformations_bluerov_default.yaml')
