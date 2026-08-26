@@ -153,7 +153,7 @@ class PathPlanner(Node):
         self.declare_parameter('goal_tolerance', 0.3)
 
         # Start position for the move_to_start service.
-        self.declare_parameter('robot_z', -0.7)
+        self.declare_parameter('robot_z', (-0.8 + 0.16))  # Sensor Offset
         self.declare_parameter('start_x', 0.4)
         self.declare_parameter('start_y', 0.4)
         self.declare_parameter('start_yaw', pi / 2.0)
