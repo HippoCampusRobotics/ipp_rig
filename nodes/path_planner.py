@@ -80,6 +80,7 @@ class PathPlanner(Node):
         self._planning_cancel_event: threading.Event = None
         self._last_replan_time: float = 0.0
         self._n_measurements: int = 0
+        self._move_to_start_pending: bool = False
 
         # Debugging Variables ----------
         self._planning_cycle: int = 0
@@ -378,14 +379,18 @@ class PathPlanner(Node):
             return False
 
     def serve_move_to_start(self, _request, response):
-        if self.state == State.IDLE and self.current_pose is not None:
+        if self.state != State.IDLE:
+            self.get_logger().warn(
+                f'move_to_start ignored: state={self.state.name}')
+            response.success = False
+        elif self.current_pose is not None:
             self.get_logger().info('Move to start requested.')
             response.success = self.do_move_to_start()
         else:
-            self.get_logger().warn(
-                f'move_to_start ignored: state={self.state.name}, '
-                f'pose_available={self.current_pose is not None}')
-            response.success = False
+            self.get_logger().info(
+                'Move to start requested, waiting for pose ...')
+            self._move_to_start_pending = True
+            response.success = True
         return response
 
     def do_move_to_start(self):
@@ -719,8 +724,23 @@ class PathPlanner(Node):
 
         The planning thread must not make ROS calls (executor conflict), so it only
         stores the result in _pending_path. This timer runs in the executor context
-        and sends the path. Exactly one of the three tasks below is handled per tick.
+        and sends the path. Exactly one of the tasks below is handled per tick.
         """
+
+        # Task 0: finishes a pending move_to_start once the pose arrives.
+        if self._move_to_start_pending:
+            if self.state != State.IDLE:
+                # Only valid while IDLE; drop it if the state moved on.
+                self._move_to_start_pending = False
+                self.get_logger().warn(
+                    'Dropping pending move_to_start: state changed to '
+                    f'{self.state.name} before the pose arrived.')
+            elif self.current_pose is not None:
+                self._move_to_start_pending = False
+                self.get_logger().info(
+                    'Pose available, executing pending move_to_start.')
+                self.do_move_to_start()
+            return
 
         # Task 1: send a new path if the planning thread has finished.
         # Lock needed because _pending_path is written by the thread.
