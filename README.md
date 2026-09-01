@@ -51,6 +51,15 @@ Optional arguments.
 | `scenario` | _(empty)_ | Obstacle layout to load (e.g. `scenario_1`). Leave empty for a free (empty) tank |
 | `planner` | `rig` | Which planning algorithm to run, `rig` (RIG-tree), `lawnmower` (a fixed back-and-forth coverage pattern, used as a non-informative baseline), or `random` (RIG-tree without using variance information, i.e. a random walk). Sets the `planner_type` parameter of `path_planner.py`. There is only ever one planner node running |
 | `start_gui` | `false` | Show the Gazebo window. Runs headless (no window) by default |
+| `goal_tolerance` | `0.15` | Distance (m) to the last waypoint that triggers a new planning cycle. Sets `path_planner.py`'s `goal_tolerance` parameter |
+| `robot_z` | `-0.5` | Depth (m) used for `move_to_start` and every planned waypoint. Sets `path_planner.py`'s `robot_z` parameter |
+| `start_x` | `0.35` | X position (m) for `move_to_start`. Sets `path_planner.py`'s `start_x` parameter |
+| `start_y` | `0.35` | Y position (m) for `move_to_start`. Sets `path_planner.py`'s `start_y` parameter |
+| `kp_xy` | `1.0` | Proportional gain, x/y. Sets `position_controller.py`'s `kp_xy` parameter |
+| `kp_z` | `2.0` | Proportional gain, z. Sets `position_controller.py`'s `kp_z` parameter |
+| `p_gain` | `0.1` | Proportional gain, yaw. Sets `yaw_controller.py`'s `p_gain` parameter |
+
+`goal_tolerance`, `robot_z`, `start_x`, `start_y`, `kp_xy`, `kp_z`, and `p_gain` default to values tuned for simulation here. `experiment.launch.py` declares the same arguments with different defaults, tuned for the real BlueROV on hardware (see its own "Optional arguments" below).
 
 ```bash
 # for instance, with scenario 1 obstacles and Gazebo GUI
@@ -88,7 +97,9 @@ Real-hardware runs use `experiment.launch.py` instead of `simulation.launch.py`.
 ros2 launch ipp experiment.launch.py
 ```
 
-One important difference is that `vehicle_name` defaults to `bluerov01` here, not `bluerov00` like in simulation. All the other arguments work the same as in `simulation.launch.py` (`scenario`, `planner`, `rng_seed`, `planning_horizon`, `planning_time_s`, `roi_adaptive_enabled`, `roi_threshold`, `roi_beta`), just without `start_gui`, since there is no Gazebo.
+One important difference is that `vehicle_name` defaults to `bluerov01` here, not `bluerov00` like in simulation. `scenario`, `planner`, `rng_seed`, `planning_horizon`, `planning_time_s`, `roi_adaptive_enabled`, `roi_threshold`, and `roi_beta` work the same as in `simulation.launch.py` (same argument, same default), just without `start_gui`, since there is no Gazebo.
+
+`goal_tolerance`, `robot_z`, `start_x`, `start_y`, `kp_xy`, `kp_z`, and `p_gain` are also available here, but default to different values, tuned for the real BlueROV on hardware instead of simulation: `goal_tolerance=0.3`, `robot_z=-0.84`, `start_x=0.5`, `start_y=0.5`, `kp_xy=20.0`, `kp_z=3.0`, `p_gain=0.2`.
 
 Start, stop, and move-to-start work exactly the same as in simulation, just under the `bluerov01` namespace instead of `bluerov00`.
 

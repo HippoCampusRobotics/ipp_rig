@@ -98,6 +98,61 @@ def generate_launch_description() -> LaunchDescription:
             'roi_adaptive_enabled. Forwarded to path_planner.py.',
         ))
 
+    # The following defaults match the current real-hardware tuning
+    # (position_controller.py, yaw_controller.py, path_planner.py's own
+    # declare_parameter defaults). simulation.launch.py overrides them with
+    # different, sim-appropriate values. experiment.launch.py leaves them at
+    # these defaults, so hardware runs are unaffected either way.
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'goal_tolerance',
+            default_value='0.3',
+            description="Forwarded to path_planner.py's 'goal_tolerance' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'robot_z',
+            default_value='-0.84',
+            description="Forwarded to path_planner.py's 'robot_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_x',
+            default_value='0.5',
+            description="Forwarded to path_planner.py's 'start_x' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_y',
+            default_value='0.5',
+            description="Forwarded to path_planner.py's 'start_y' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_xy',
+            default_value='20.0',
+            description="Forwarded to position_controller.py's 'kp_xy' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_z',
+            default_value='3.0',
+            description="Forwarded to position_controller.py's 'kp_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'p_gain',
+            default_value='0.2',
+            description="Forwarded to yaw_controller.py's 'p_gain' "
+            'parameter.',
+        ))
+
     package_path = get_package_share_path('ipp')
     mapping_params_file_path = str(package_path / 'config/mapping_params.yaml')
     transformations_file_path = str(
@@ -154,6 +209,18 @@ def generate_launch_description() -> LaunchDescription:
                     'roi_beta':
                     ParameterValue(LaunchConfiguration('roi_beta'),
                                    value_type=float),
+                    'goal_tolerance':
+                    ParameterValue(LaunchConfiguration('goal_tolerance'),
+                                   value_type=float),
+                    'robot_z':
+                    ParameterValue(LaunchConfiguration('robot_z'),
+                                   value_type=float),
+                    'start_x':
+                    ParameterValue(LaunchConfiguration('start_x'),
+                                   value_type=float),
+                    'start_y':
+                    ParameterValue(LaunchConfiguration('start_y'),
+                                   value_type=float),
                 },
             ],
         ),
@@ -180,7 +247,12 @@ def generate_launch_description() -> LaunchDescription:
             executable='position_controller.py',
             package='ipp',
             parameters=[{
-                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'use_sim_time':
+                LaunchConfiguration('use_sim_time'),
+                'kp_xy':
+                ParameterValue(LaunchConfiguration('kp_xy'), value_type=float),
+                'kp_z':
+                ParameterValue(LaunchConfiguration('kp_z'), value_type=float),
             }],
         ),
 
@@ -192,7 +264,11 @@ def generate_launch_description() -> LaunchDescription:
             package='ipp',
             parameters=[
                 {
-                    'use_sim_time': LaunchConfiguration('use_sim_time'),
+                    'use_sim_time':
+                    LaunchConfiguration('use_sim_time'),
+                    'p_gain':
+                    ParameterValue(LaunchConfiguration('p_gain'),
+                                   value_type=float),
                 },
             ],
         ),

@@ -27,14 +27,14 @@ def generate_launch_description():
             'planner',
             default_value='rig',
             description="Path planner to run: 'rig', 'lawnmower' baseline, "
-                        "or 'random' baseline.",
+            "or 'random' baseline.",
         ))
     launch_description.add_action(
         DeclareLaunchArgument(
             'rng_seed',
             default_value='-1',
             description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
-                        'unseeded.',
+            'unseeded.',
         ))
     launch_description.add_action(
         DeclareLaunchArgument(
@@ -53,22 +53,75 @@ def generate_launch_description():
             'roi_adaptive_enabled',
             default_value='false',
             description='Enable value-dependent region-of-interest '
-                        'weighting (Hitz et al. 2017, Sec. 4.3).',
+            'weighting (Hitz et al. 2017, Sec. 4.3).',
         ))
     launch_description.add_action(
         DeclareLaunchArgument(
             'roi_threshold',
             default_value='0.008',
             description='f_th (Hitz et al. 2017, Eq. 14), only used when '
-                        'roi_adaptive_enabled. Tuned to the current '
-                        'scenarios (amplitude=0.011, clip_max=0.02).',
+            'roi_adaptive_enabled. Tuned to the current '
+            'scenarios (amplitude=0.011, clip_max=0.02).',
         ))
     launch_description.add_action(
         DeclareLaunchArgument(
             'roi_beta',
             default_value='2.0',
             description='beta (Hitz et al. 2017, Eq. 15), only used when '
-                        'roi_adaptive_enabled.',
+            'roi_adaptive_enabled.',
+        ))
+
+    # The current defaults of these node parameters are tuned for
+    # real hardware. These values are the sim-tuned ones that were actually
+    # used by official_results/experiment_00/01/02
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'goal_tolerance',
+            default_value='0.15',
+            description="Forwarded to path_planner.py's 'goal_tolerance' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'robot_z',
+            default_value='-0.5',
+            description="Forwarded to path_planner.py's 'robot_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_x',
+            default_value='0.35',
+            description="Forwarded to path_planner.py's 'start_x' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_y',
+            default_value='0.35',
+            description="Forwarded to path_planner.py's 'start_y' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_xy',
+            default_value='1.0',
+            description="Forwarded to position_controller.py's 'kp_xy' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_z',
+            default_value='2.0',
+            description="Forwarded to position_controller.py's 'kp_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'p_gain',
+            default_value='0.1',
+            description="Forwarded to yaw_controller.py's 'p_gain' "
+            'parameter.',
         ))
 
     scalar_field_sim_path = get_package_share_path('scalar_field_sim')
@@ -126,6 +179,13 @@ def generate_launch_description():
     args.add('roi_adaptive_enabled')
     args.add('roi_threshold')
     args.add('roi_beta')
+    args.add('goal_tolerance')
+    args.add('robot_z')
+    args.add('start_x')
+    args.add('start_y')
+    args.add('kp_xy')
+    args.add('kp_z')
+    args.add('p_gain')
     args['use_sim_time'] = 'true'
     # ir_measurement_sim_node.py does not apply the sensor offset, so
     # path_follower.py must not apply it here either. Otherwise the

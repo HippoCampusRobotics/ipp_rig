@@ -77,6 +77,55 @@ def generate_launch_description() -> LaunchDescription:
             description='beta (Hitz et al. 2017, Eq. 15), only used when '
             'roi_adaptive_enabled.',
         ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'goal_tolerance',
+            default_value='0.3',
+            description="Forwarded to path_planner.py's 'goal_tolerance' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'robot_z',
+            default_value='-0.84',
+            description="Forwarded to path_planner.py's 'robot_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_x',
+            default_value='0.5',
+            description="Forwarded to path_planner.py's 'start_x' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'start_y',
+            default_value='0.5',
+            description="Forwarded to path_planner.py's 'start_y' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_xy',
+            default_value='20.0',
+            description="Forwarded to position_controller.py's 'kp_xy' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'kp_z',
+            default_value='3.0',
+            description="Forwarded to position_controller.py's 'kp_z' "
+            'parameter.',
+        ))
+    launch_description.add_action(
+        DeclareLaunchArgument(
+            'p_gain',
+            default_value='0.2',
+            description="Forwarded to yaw_controller.py's 'p_gain' "
+            'parameter.',
+        ))
 
     belief_params_file_path = str(
         get_package_share_path('scalar_field_belief') /
@@ -107,6 +156,13 @@ def generate_launch_description() -> LaunchDescription:
     args.add('roi_adaptive_enabled')
     args.add('roi_threshold')
     args.add('roi_beta')
+    args.add('goal_tolerance')
+    args.add('robot_z')
+    args.add('start_x')
+    args.add('start_y')
+    args.add('kp_xy')
+    args.add('kp_z')
+    args.add('p_gain')
     args['use_sim_time'] = 'false'
     launch_description.add_action(
         GroupAction([
