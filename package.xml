@@ -25,6 +25,7 @@
   <depend>scalar_field_interfaces</depend>
   <exec_depend>hippo_common</exec_depend>
   <exec_depend>hippo_control_msgs</exec_depend>
+  <exec_depend>hippo_sim</exec_depend>
   <exec_depend>tf_transformations</exec_depend>
 
   <export>

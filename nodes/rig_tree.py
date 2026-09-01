@@ -63,8 +63,8 @@ class RIGTree:
         self.y_max = self.height * resolution
 
         i_init = self._initial_information(x_start)
-        # path_points starts empty: the root is not yet part of any scored
-        # path
+        # path_points starts empty: the root is not yet part of any
+        # evaluated path
         root = Node(x=x_start.copy(),
                     cost=0.0,
                     info=i_init,

@@ -167,10 +167,11 @@ class PathPlanner(Node):
         # 0.2 s = 5 Hz.
         self.declare_parameter('measurement_period_s', 0.5)
 
-        # Points per axis for the fixed grid used to score how informative a
-        # candidate path is (grid size is info_grid_resolution^2). Bigger
-        # grid = more accurate info score but slower, since every RIG-tree
-        # iteration queries all grid points together with the candidates.
+        # Points per axis for the fixed grid used to evaluate how informative
+        # a candidate path is (grid size is info_grid_resolution^2). Bigger
+        # grid = more accurate information gain but slower, since every
+        # RIG-tree iteration queries all grid points together with the
+        # candidates.
         self.declare_parameter('info_grid_resolution', 25)
 
         # Adaptive, value-dependent region-of-interest weighting (Hitz et al.
@@ -348,7 +349,7 @@ class PathPlanner(Node):
             f'Start requested, planner_type={self.get_parameter("planner_type").value}.'
         )
         # One measurement at the start position before the first planning
-        # cycle, so the very first cycle already scores candidates against
+        # cycle, so the very first cycle already evaluates candidates against
         # a non-empty belief instead of the bare prior.
         if self.measurement_client.service_is_ready():
             self.measurement_client.call_async(Trigger.Request())
@@ -495,11 +496,10 @@ class PathPlanner(Node):
 
     def run_planning(self, cancel_event: threading.Event):
         self._planning_cycle += 1
-        # Reseeded every cycle (not just once at mission start): 'rig' and
-        # 'random' draw different numbers of Sample() draws per wall-clock
-        # planning cycle ('random' skips the GP service call, so it runs
-        # more iterations), so a mission-start-only seed would only keep
-        # both arms' draw streams aligned during the first cycle.
+        # Reseed every cycle so 'rig' and 'random' stay comparable. 'random'
+        # skips the GP call and does more Sample() draws per cycle than
+        # 'rig', so a single seed at mission start would desync them after
+        # the first cycle.
         rng_seed = self.get_parameter('rng_seed').value
         if rng_seed >= 0:
             random.seed(rng_seed * 10000 + self._planning_cycle)
@@ -516,8 +516,8 @@ class PathPlanner(Node):
 
         self._log_measurement_cycle(x_start)
 
-        # Grid for scoring information this cycle: built once here and
-        # reused for every candidate the tree scores.
+        # Grid for evaluating information this cycle: built once here and
+        # reused for every candidate the tree evaluates.
         info_grid_points = self._build_info_grid()
 
         is_random = self.get_parameter('planner_type').value == 'random'
@@ -560,10 +560,10 @@ class PathPlanner(Node):
             self._n_measurements += 1
 
     def _build_info_grid(self) -> list:
-        """Builds the fixed grid of points used to score how informative a
+        """Builds the fixed grid of points used to evaluate how informative a
         path is. Spread evenly over the whole tank, independent of any
         path. Rebuilt once at the start of each planning cycle in
-        run_planning() and then reused for every candidate scored in that
+        run_planning() and then reused for every candidate evaluated in that
         cycle.
         """
         n = self.get_parameter('info_grid_resolution').value
@@ -576,16 +576,24 @@ class PathPlanner(Node):
         return [np.array([x, y]) for x, y in zip(xx.ravel(), yy.ravel())]
 
     def make_batch_info_fn(self, grid_points: list):
-        """Returns a function that scores a batch of candidate paths in one
-        belief query, giving each one an information value that gets added
-        to its parent's value in rig_tree.run(). Returns None if the belief
-        service isn't ready, in which case rig_tree falls back to giving
-        every step a value of 1.
+        """Returns a function that evaluates a batch of candidate paths in
+        one belief query, giving each one an information value that gets
+        added to its parent's value in rig_tree.run(). Returns None if the
+        belief service isn't ready, in which case rig_tree falls back to
+        giving every step a value of 1.
 
-        grid_points is the fixed grid built in _build_info_grid: every
+        rig_tree.py does not know about ROS or the belief service. It is a
+        plain algorithm module that only works with numbers and paths. Only
+        path_planner.py has the belief service client and the ROS
+        parameters needed to compute a real information value. So
+        path_planner.py builds this function once here and hands it to
+        rig_tree as a plain argument. This keeps rig_tree simple and free of
+        any ROS code.
+
+        grid_points is the fixed grid built in _build_info_grid. Every
         candidate in this planning cycle is compared against the same grid,
-        so a path's score is how much uncertainty it removes from the whole
-        tank, not just compared to its own ancestors.
+        so a path's information value is how much uncertainty it removes
+        from the whole tank, not just compared to its own ancestors.
         """
         if not self.belief_covariance_client.service_is_ready():
             self.get_logger().warn(
@@ -655,19 +663,16 @@ class PathPlanner(Node):
 
             # reshape flat list that the ROS2 service sends into the proper matrix
             cov = np.array(result.covariance_matrix).reshape(n, n)
-            # Covariance between grid points and path points, and between
-            # path points themselves. We don't need the grid-grid block: it's
-            # the same for every candidate in this call, so it cancels out of
-            # the increment below.
+            # Split into grid-path covariance and path-path covariance.
+            # We skip the grid-grid block: it's the same for every path here
+            # and cancels out below.
             c_g_all = cov[:n_grid, n_grid:]  # (M, K)
             c_xx_all = cov[n_grid:, n_grid:]  # (K, K)
-            # GP likelihood noise (sigma_n^2), owned by the belief model, not
-            # duplicated here: it can change if the belief refits its
-            # hyperparameters, so it's read fresh from the service response
-            # every call instead of being a planner-side constant.
+            # GP Measurement noise variance, read fresh each call in case the
+            # belief model has refit its hyperparameters.
             sigma_n_sq = result.measurement_noise_variance
 
-            # Value-dependent region-of-interest weighting (Hitz et al. 2017,
+            # Value-dependent region-of-interest (ROI) weighting (Hitz et al. 2017,
             # Sec. 4.3, Eq. 14-15)
             if roi_adaptive_enabled and self._n_measurements >= roi_min_measurements:
                 mean_grid = np.asarray(result.mean[:n_grid])
@@ -684,10 +689,7 @@ class PathPlanner(Node):
                 the belief. idx indexes into query_points.
 
                 Follows the standard GP posterior covariance equation
-                (Eq. 3 in Popovic et al. 2020):
-                conditioning is on simulated noisy measurements
-                z = f + eps, eps ~ N(0, sigma_n_sq), so the block being
-                inverted is (c_xx + sigma_n_sq * I), not c_xx alone.
+                (Eq. 3 in Popovic et al. 2020), expanded to GP... check thesis for this
                 """
                 if not idx:
                     return 0.0
@@ -698,16 +700,13 @@ class PathPlanner(Node):
                 # roi_weights applies the Eq. 15 mask per grid point
                 return float(np.sum(roi_weights[:, None] * c_gx * y.T))
 
-            # Increment = additional grid-trace reduction gained by adding
-            # the candidate's own new point (last in idx) on top of its
-            # ancestors (idx[:-1]). Always >= 0 by construction (Schur
-            # complement of c_xx + sigma_n_sq * I, still PSD: conditioning
-            # never increases variance), so it slots into node.info =
-            # parent.info + increment without changing that accumulation
-            # logic. Unlike entropy/log-det, A-optimal trace reduction is
-            # not a strictly submodular set function, but for smooth
-            # spatial kernels it exhibits the same diminishing-returns
-            # behaviour in practice.
+            # Increment = extra uncertainty reduction from adding the
+            # candidate's own new point (last in idx), on top of what its
+            # ancestors (idx[:-1]) already give. Always >= 0: adding a
+            # measurement can only reduce variance, never increase it (a
+            # basic property of GP conditioning). That's why it can just
+            # be added on: node.info = parent.info + increment, no
+            # special-casing needed.
             info_increments = []
             for idx in candidate_indices:
                 reduction_with_new_point = trace_reduction(idx)
@@ -720,17 +719,26 @@ class PathPlanner(Node):
         return batch_info_fn
 
     def control_timer_cb(self):
-        """10 Hz: send finished paths and check the replanning condition.
+        """Runs at 10 Hz and drives the node's state machine.
 
-        The planning thread must not make ROS calls (executor conflict), so it only
-        stores the result in _pending_path. This timer runs in the executor context
-        and sends the path. Exactly one of the tasks below is handled per tick.
+        RIG-tree planning happens on a separate thread (see run_planning())
+        because it is too slow to run inside a 10 Hz callback. That thread
+        is not allowed to touch ROS itself (only this executor thread may),
+        so it just writes its result into _pending_path and waits. This
+        timer is what actually picks that result up and sends it.
+
+        Each tick checks a short list of tasks from top to bottom and does
+        at most one of them, whichever applies first.
         """
 
-        # Task 0: finishes a pending move_to_start once the pose arrives.
+        # Task 0. Runs a move_to_start call that arrived before a pose was
+        # available to send it with. Waits here until current_pose
+        # arrives, then runs it.
         if self._move_to_start_pending:
             if self.state != State.IDLE:
-                # Only valid while IDLE; drop it if the state moved on.
+                # Something else changed the state during the wait
+                # (e.g. a stop request), making the pending call no longer
+                # valid. Drop it instead of running it.
                 self._move_to_start_pending = False
                 self.get_logger().warn(
                     'Dropping pending move_to_start: state changed to '
@@ -742,8 +750,9 @@ class PathPlanner(Node):
                 self.do_move_to_start()
             return
 
-        # Task 1: send a new path if the planning thread has finished.
-        # Lock needed because _pending_path is written by the thread.
+        # Task 1. Sends the path that the planning thread just finished
+        # computing. The lock is needed because _pending_path is written
+        # from that other thread, not this one.
         path = None
         with self._lock:
             if self._new_path_ready and self._pending_path:
@@ -755,9 +764,11 @@ class PathPlanner(Node):
                 self.send_path(path)
             return
 
-        # Task 2: retry starting the planning thread.
-        # Happens when PLANNING state was set but trigger_replan() returned early
-        # because pose or grid were not yet available, or the last path was empty.
+        # Task 2. Restarts planning when the state is PLANNING but no
+        # planning thread is actually running. This happens when
+        # trigger_replan() bailed out early last time (e.g. no pose/grid
+        # yet, or an empty path), so it gets retried here on every tick
+        # until it succeeds.
         if self.state == State.PLANNING:
             with self._lock:
                 active = self._planning_active
@@ -771,10 +782,9 @@ class PathPlanner(Node):
         if self.current_pose is None or self._path_end is None:
             return
 
-        # Task 3: check the replanning condition.
-        # Primary condition (paper-conform, Section 4.1):
-        #   "replanning after the budget increment is expended"
-        #   The budget is expended when the robot has reached the path end.
+        # Task 3. Checks the distance from the robot to the last waypoint
+        # of the current path (_path_end) and replans once it is close
+        # enough.
         pos = self.current_pose.position
         dist = math.sqrt((pos.x - self._path_end[0])**2 +
                          (pos.y - self._path_end[1])**2)
@@ -788,8 +798,12 @@ class PathPlanner(Node):
             return
 
         if self.get_parameter('planner_type').value == 'lawnmower':
+            # Lawnmower has one fixed coverage path, nothing to replan.
             return
 
+        # Fallback trigger, replan anyway if the robot
+        # has been stuck on this path for too long (e.g. blocked by an
+        # obstacle) instead of waiting forever for it to reach the end.
         elapsed = self.get_clock().now(
         ).nanoseconds * 1e-9 - self._last_replan_time
         if elapsed > self.get_parameter('replan_timeout_s').value:
