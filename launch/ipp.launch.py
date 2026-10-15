@@ -277,7 +277,7 @@ def generate_launch_description() -> LaunchDescription:
         # OBSTACLE PUBLISHER
         ########################################################################
         Node(
-            executable='obstacle_publisher',
+            executable='obstacle_publisher.py',
             package='ipp',
             parameters=[
                 {
