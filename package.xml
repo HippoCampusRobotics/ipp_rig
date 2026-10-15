@@ -23,6 +23,10 @@
   <depend>ament_index_cpp</depend>
   <depend>ipp_interfaces</depend>
   <depend>scalar_field_interfaces</depend>
+  <exec_depend>scalar_field_sim</exec_depend>
+  <exec_depend>scalar_field_belief</exec_depend>
+  <exec_depend>ipp_rviz_visuals</exec_depend>
+  <exec_depend>rviz_2d_overlay_plugins</exec_depend>
   <exec_depend>hippo_common</exec_depend>
   <exec_depend>hippo_control_msgs</exec_depend>
   <exec_depend>hippo_sim</exec_depend>
