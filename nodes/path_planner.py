@@ -19,11 +19,10 @@ from geometry_msgs.msg import (
     PoseWithCovarianceStamped,
     Quaternion,
 )
-from nav_msgs.msg import OccupancyGrid, Path
-from rclpy.executors import ExternalShutdownException
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
+from nav_msgs.msg import OccupancyGrid, Path
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.node import Node
 from scalar_field_interfaces.srv import QueryScalarFieldBeliefCovariance
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
@@ -32,8 +31,8 @@ from visualization_msgs.msg import Marker
 
 # Tells Python to look for rig_tree.py/lawnmower.py in the same directory as this file.
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from rig_tree import RIGTree
 from lawnmower import generate_lawnmower_path
+from rig_tree import RIGTree
 
 # nodes/path_planner.py -> ipp -> src -> workspace root. Both packages are
 # symlink-installed, so __file__ resolves to this source path even when
@@ -407,13 +406,13 @@ class PathPlanner(Node):
 
     def do_stop(self):
         self.state = State.IDLE
+        self._move_to_start_pending = False
         with self._lock:
             self._path_end = None
             self._pending_path = None
             self._new_path_ready = False
-            cancel_event = self._planning_cancel_event
-        if cancel_event is not None:
-            cancel_event.set()
+            if self._planning_cancel_event is not None:
+                self._planning_cancel_event.set()
         self.publish_path_marker([])
         try:
             future = self.path_finished_client.call_async(Trigger.Request())
@@ -520,87 +519,98 @@ class PathPlanner(Node):
             ).start()
 
     def run_lawnmower_planning(self):
-        x_start = np.array(
-            [
-                self.get_parameter("start_x").value,
-                self.get_parameter("start_y").value,
-            ]
-        )
-        height, width = self.occupancy_matrix.shape
+        try:
+            x_start = np.array(
+                [
+                    self.get_parameter("start_x").value,
+                    self.get_parameter("start_y").value,
+                ]
+            )
+            height, width = self.occupancy_matrix.shape
 
-        path = generate_lawnmower_path(
-            x_start=x_start,
-            x_max=width * self.cell_size,
-            y_max=height * self.cell_size,
-            lane_spacing=self.get_parameter("lane_spacing").value,
-            waypoint_spacing=self.get_parameter("delta").value,
-            end_margin=self.get_parameter("lawnmower_end_margin").value,
-        )
-        self.get_logger().info(
-            f"Lawnmower coverage path with {len(path)} waypoints."
-        )
+            path = generate_lawnmower_path(
+                x_start=x_start,
+                x_max=width * self.cell_size,
+                y_max=height * self.cell_size,
+                lane_spacing=self.get_parameter("lane_spacing").value,
+                waypoint_spacing=self.get_parameter("delta").value,
+                end_margin=self.get_parameter("lawnmower_end_margin").value,
+            )
+            self.get_logger().info(
+                f"Lawnmower coverage path with {len(path)} waypoints."
+            )
 
-        with self._lock:
-            self._pending_path = path
-            self._new_path_ready = True
-            self._planning_active = False
+            with self._lock:
+                self._pending_path = path
+                self._new_path_ready = True
+        except Exception as exc:
+            self.get_logger().error(f"Lawnmower planning failed: {exc}")
+        finally:
+            with self._lock:
+                self._planning_active = False
 
     def run_planning(self, cancel_event: threading.Event):
-        self._planning_cycle += 1
-        # Reseed every cycle so 'rig' and 'random' stay comparable. 'random'
-        # skips the GP call and does more Sample() draws per cycle than
-        # 'rig', so a single seed at mission start would desync them after
-        # the first cycle.
-        rng_seed = self.get_parameter("rng_seed").value
-        if rng_seed >= 0:
-            random.seed(rng_seed * 10000 + self._planning_cycle)
-        # The robot is stationary (holding at the previous path's end) for
-        # the whole PLANNING phase, so the live pose is exactly x_start.
-        pose = self.current_pose
-        x_start = np.array([pose.position.x, pose.position.y])
-        planning_time_s = self.get_parameter("planning_time_s").value
-        grid = self.occupancy_matrix.copy()
+        try:
+            self._planning_cycle += 1
+            # Reseed every cycle so 'rig' and 'random' stay comparable. 'random'
+            # skips the GP call and does more Sample() draws per cycle than
+            # 'rig', so a single seed at mission start would desync them after
+            # the first cycle.
+            rng_seed = self.get_parameter("rng_seed").value
+            if rng_seed >= 0:
+                random.seed(rng_seed * 10000 + self._planning_cycle)
+            # The robot is stationary (holding at the previous path's end) for
+            # the whole PLANNING phase, so the live pose is exactly x_start.
+            pose = self.current_pose
+            x_start = np.array([pose.position.x, pose.position.y])
+            planning_time_s = self.get_parameter("planning_time_s").value
+            grid = self.occupancy_matrix.copy()
 
-        self.get_logger().info(
-            f"Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), "
-            f"horizon={self.get_parameter('planning_horizon').value} nodes ..."
-        )
+            self.get_logger().info(
+                f"Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), "
+                f"horizon={self.get_parameter('planning_horizon').value} nodes ..."
+            )
 
-        self._log_measurement_cycle(x_start)
+            self._log_measurement_cycle(x_start)
 
-        # Grid for evaluating information this cycle: built once here and
-        # reused for every candidate the tree evaluates.
-        info_grid_points = self._build_info_grid()
+            # Grid for evaluating information this cycle: built once here and
+            # reused for every candidate the tree evaluates.
+            info_grid_points = self._build_info_grid()
 
-        is_random = self.get_parameter("planner_type").value == "random"
-        tree = RIGTree(
-            delta=self.get_parameter("delta").value,
-            planning_horizon=self.get_parameter("planning_horizon").value,
-            x_start=x_start,
-            R=self.get_parameter("near_radius").value,
-            grid=grid,
-            resolution=self.cell_size,
-            batch_info_fn=None
-            if is_random
-            else self.make_batch_info_fn(info_grid_points),
-        )
-        stats = tree.run(
-            planning_time_s=planning_time_s, cancel_event=cancel_event
-        )
-        self.get_logger().info(
-            f"Planning done ({stats['stopped_reason']}): {stats['iterations']} iterations "
-            f"in {stats['elapsed_s']:.2f} s, "
-            f"{stats['nodes_added']} nodes added ({stats['nodes']} total, {stats['closed']} closed), "
-            f"{stats['gp_calls']} belief covariance calls"
-        )
-        self._log_tree_stats(stats)
-        path = tree.best_path()
-        self._log_best_path(path)
+            is_random = self.get_parameter("planner_type").value == "random"
+            tree = RIGTree(
+                delta=self.get_parameter("delta").value,
+                planning_horizon=self.get_parameter("planning_horizon").value,
+                x_start=x_start,
+                R=self.get_parameter("near_radius").value,
+                grid=grid,
+                resolution=self.cell_size,
+                batch_info_fn=None
+                if is_random
+                else self.make_batch_info_fn(info_grid_points),
+            )
+            stats = tree.run(
+                planning_time_s=planning_time_s, cancel_event=cancel_event
+            )
+            self.get_logger().info(
+                f"Planning done ({stats['stopped_reason']}): {stats['iterations']} iterations "
+                f"in {stats['elapsed_s']:.2f} s, "
+                f"{stats['nodes_added']} nodes added ({stats['nodes']} total, {stats['closed']} closed), "
+                f"{stats['gp_calls']} belief covariance calls"
+            )
+            self._log_tree_stats(stats)
+            path = tree.best_path()
+            self._log_best_path(path)
 
-        with self._lock:
-            self._pending_path = path
-            self._new_path_ready = True
-            self._planning_active = False
+            with self._lock:
+                if not cancel_event.is_set():
+                    self._pending_path = path
+                    self._new_path_ready = True
+        except Exception as exc:
+            self.get_logger().error(f"Planning failed: {exc}")
+        finally:
+            with self._lock:
+                self._planning_active = False
 
     def _trigger_measurement(self):
         if self.state != State.EXECUTING:
@@ -800,7 +810,7 @@ class PathPlanner(Node):
         if self._move_to_start_pending:
             if self.state != State.IDLE:
                 # Something else changed the state during the wait
-                # (e.g. a stop request), making the pending call no longer
+                # (e.g. a start request), making the pending call no longer
                 # valid. Drop it instead of running it.
                 self._move_to_start_pending = False
                 self.get_logger().warn(
