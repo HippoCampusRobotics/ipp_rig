@@ -20,7 +20,8 @@ class Node:
     # All positions from the root to this node, in order, including this
     # node's own position as the last entry.
     path_points: List[np.ndarray] = field(
-        default_factory=list)  # Fresh list per Node instance
+        default_factory=list
+    )  # Fresh list per Node instance
 
 
 class RIGTree:
@@ -53,7 +54,7 @@ class RIGTree:
         self.planning_horizon = planning_horizon
         self.R = R
         self.R_sq = R * R
-        self.eps_sq = (delta / 2.0)**2
+        self.eps_sq = (delta / 2.0) ** 2
         self.grid = grid
         self.resolution = resolution
         self._batch_info_fn = batch_info_fn
@@ -65,13 +66,12 @@ class RIGTree:
         i_init = self._initial_information(x_start)
         # path_points starts empty: the root is not yet part of any
         # evaluated path
-        root = Node(x=x_start.copy(),
-                    cost=0.0,
-                    info=i_init,
-                    parent=None,
-                    path_points=[])
+        root = Node(
+            x=x_start.copy(), cost=0.0, info=i_init, parent=None, path_points=[]
+        )
         self.nodes: List[Node] = [root]
-        self.closed: set = set(
+        self.closed: set = (
+            set()
         )  # V_closed: nodes whose depth has reached the planning horizon
         self.edges: List[Tuple[int, int]] = []
 
@@ -141,9 +141,11 @@ class RIGTree:
     # Algorithm 2 main loop
     # ------------------------------------------------------------------
 
-    def run(self,
-            planning_time_s: Optional[float] = 1.0,
-            cancel_event: Optional[threading.Event] = None) -> dict:
+    def run(
+        self,
+        planning_time_s: Optional[float] = 1.0,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> dict:
         """Anytime algorithm: runs until stopped ("while not terminated" in the paper).
 
         Stops when cancel_event is set, or when planning_time_s elapses.
@@ -151,20 +153,25 @@ class RIGTree:
 
         Returns a stats dict: iterations, elapsed_s, saturated (True = tree exhausted before deadline).
         """
-        deadline = (time.monotonic() + planning_time_s
-                    if planning_time_s is not None else float('inf'))
+        deadline = (
+            time.monotonic() + planning_time_s
+            if planning_time_s is not None
+            else float("inf")
+        )
         t_start = time.monotonic()
         iterations = 0
         nodes_added = 0
         gp_calls = 0
-        while (cancel_event is None
-               or not cancel_event.is_set()) and time.monotonic() < deadline:
+        while (
+            cancel_event is None or not cancel_event.is_set()
+        ) and time.monotonic() < deadline:
             iterations += 1
             nodes_before = len(self.nodes)
             # Open nodes are those not yet closed by the planning horizon
             open_arr = np.array(
                 [i for i in range(len(self.nodes)) if i not in self.closed],
-                dtype=int)
+                dtype=int,
+            )
 
             # Build KD-tree once per iteration over open node positions: O(n log n).
             # All spatial queries within this iteration are then O(log n).
@@ -202,7 +209,8 @@ class RIGTree:
             # (e.g. GP service not ready).
             if self._batch_info_fn is not None:
                 increments = self._batch_info_fn(
-                    [p for _, _, _, p in candidates])
+                    [p for _, _, _, p in candidates]
+                )
                 gp_calls += 1
             else:
                 increments = [1.0] * len(candidates)
@@ -211,23 +219,28 @@ class RIGTree:
             # kd doesn't see nodes newly added in this loop iteration, so we keep our own
             # list of them (newly_added) and check them just like prune.
             newly_added: List[Tuple[np.ndarray, float, float]] = []
-            for j, (near_idx, x_new, c_new,
-                    path_points) in enumerate(candidates):
+            for j, (near_idx, x_new, c_new, path_points) in enumerate(
+                candidates
+            ):
                 n_near = self.nodes[near_idx]
                 i_new = n_near.info + increments[j]
 
-                n_new = Node(x=x_new,
-                             cost=c_new,
-                             info=i_new,
-                             parent=near_idx,
-                             path_points=path_points)
+                n_new = Node(
+                    x=x_new,
+                    cost=c_new,
+                    info=i_new,
+                    parent=near_idx,
+                    path_points=path_points,
+                )
                 if self._prune(n_new, kd, open_arr):
                     continue
                 if any(
-                        math.hypot(x_new[0] - x_sib[0], x_new[1] -
-                                   x_sib[1]) <= self.delta /
-                        2.0 and i_sib > i_new and c_sib <= c_new
-                        for x_sib, i_sib, c_sib in newly_added):
+                    math.hypot(x_new[0] - x_sib[0], x_new[1] - x_sib[1])
+                    <= self.delta / 2.0
+                    and i_sib > i_new
+                    and c_sib <= c_new
+                    for x_sib, i_sib, c_sib in newly_added
+                ):
                     continue
 
                 new_idx = len(self.nodes)
@@ -260,31 +273,20 @@ class RIGTree:
         # --------------------------
 
         return {
-            'iterations':
-            iterations,
-            'elapsed_s':
-            time.monotonic() - t_start,
-            'nodes_added':
-            nodes_added,
-            'nodes':
-            len(self.nodes),
-            'closed':
-            len(self.closed),
-            'gp_calls':
-            gp_calls,
-            'stopped_reason':
-            'cancelled' if (cancel_event is not None and cancel_event.is_set())
-            else 'deadline',
-            'best_info':
-            best_info,
-            'closed_info_min':
-            closed_info_min,
-            'closed_info_max':
-            closed_info_max,
-            'closed_info_mean':
-            closed_info_mean,
-            'closed_info_std':
-            closed_info_std,
+            "iterations": iterations,
+            "elapsed_s": time.monotonic() - t_start,
+            "nodes_added": nodes_added,
+            "nodes": len(self.nodes),
+            "closed": len(self.closed),
+            "gp_calls": gp_calls,
+            "stopped_reason": "cancelled"
+            if (cancel_event is not None and cancel_event.is_set())
+            else "deadline",
+            "best_info": best_info,
+            "closed_info_min": closed_info_min,
+            "closed_info_max": closed_info_max,
+            "closed_info_mean": closed_info_mean,
+            "closed_info_std": closed_info_std,
         }
 
     # ------------------------------------------------------------------
@@ -297,8 +299,9 @@ class RIGTree:
         yet (e.g. cancelled early for a handoff): an anytime algorithm should
         return its current best result instead of nothing.
         """
-        candidates = self.closed if self.closed else set(
-            range(1, len(self.nodes)))
+        candidates = (
+            self.closed if self.closed else set(range(1, len(self.nodes)))
+        )
         if not candidates:
             return []
 

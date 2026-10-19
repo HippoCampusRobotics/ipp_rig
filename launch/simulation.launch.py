@@ -1,10 +1,15 @@
 from ament_index_python.packages import get_package_share_path
 from hippo_common.launch_helper import LaunchArgsDict
-from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, PushROSNamespace
+
+from launch import LaunchDescription
 
 
 def generate_launch_description():
@@ -12,250 +17,275 @@ def generate_launch_description():
 
     launch_description.add_action(
         DeclareLaunchArgument(
-            'vehicle_name',
-            default_value='bluerov00',
-            description='Vehicle name used as namespace.',
-        ))
+            "vehicle_name",
+            default_value="bluerov00",
+            description="Vehicle name used as namespace.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'start_gui',
-            default_value='false',
-            description='Start the Gazebo GUI. Otherwise runs headless.',
-        ))
+            "start_gui",
+            default_value="false",
+            description="Start the Gazebo GUI. Otherwise runs headless.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'planner',
-            default_value='rig',
+            "planner",
+            default_value="rig",
             description="Path planner to run: 'rig', 'lawnmower' baseline, "
             "or 'random' baseline.",
-        ))
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'rng_seed',
-            default_value='-1',
-            description='Seed for the RIG-tree Sample() RNG. -1 leaves it '
-            'unseeded.',
-        ))
+            "rng_seed",
+            default_value="-1",
+            description="Seed for the RIG-tree Sample() RNG. -1 leaves it "
+            "unseeded.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'planning_horizon',
-            default_value='6',
-            description='B (max tree node count per planning cycle).',
-        ))
+            "planning_horizon",
+            default_value="6",
+            description="B (max tree node count per planning cycle).",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'planning_time_s',
-            default_value='2.0',
-            description='Anytime wall-clock budget (s) per planning cycle.',
-        ))
+            "planning_time_s",
+            default_value="2.0",
+            description="Anytime wall-clock budget (s) per planning cycle.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'roi_adaptive_enabled',
-            default_value='false',
-            description='Enable value-dependent region-of-interest '
-            'weighting (Hitz et al. 2017, Sec. 4.3).',
-        ))
+            "roi_adaptive_enabled",
+            default_value="false",
+            description="Enable value-dependent region-of-interest "
+            "weighting (Hitz et al. 2017, Sec. 4.3).",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'roi_threshold',
-            default_value='0.008',
-            description='f_th (Hitz et al. 2017, Eq. 14), only used when '
-            'roi_adaptive_enabled. Tuned to the current '
-            'scenarios (amplitude=0.011, clip_max=0.02).',
-        ))
+            "roi_threshold",
+            default_value="0.008",
+            description="f_th (Hitz et al. 2017, Eq. 14), only used when "
+            "roi_adaptive_enabled. Tuned to the current "
+            "scenarios (amplitude=0.011, clip_max=0.02).",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'roi_beta',
-            default_value='2.0',
-            description='beta (Hitz et al. 2017, Eq. 15), only used when '
-            'roi_adaptive_enabled.',
-        ))
+            "roi_beta",
+            default_value="2.0",
+            description="beta (Hitz et al. 2017, Eq. 15), only used when "
+            "roi_adaptive_enabled.",
+        )
+    )
 
     # The current defaults of these node parameters are tuned for
     # real hardware. These values are the sim-tuned ones that were actually
     # used by official_results/experiment_00/01/02
     launch_description.add_action(
         DeclareLaunchArgument(
-            'goal_tolerance',
-            default_value='0.15',
+            "goal_tolerance",
+            default_value="0.15",
             description="Forwarded to path_planner.py's 'goal_tolerance' "
-            'parameter.',
-        ))
+            "parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'robot_z',
-            default_value='-0.5',
-            description="Forwarded to path_planner.py's 'robot_z' "
-            'parameter.',
-        ))
+            "robot_z",
+            default_value="-0.5",
+            description="Forwarded to path_planner.py's 'robot_z' parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'start_x',
-            default_value='0.35',
-            description="Forwarded to path_planner.py's 'start_x' "
-            'parameter.',
-        ))
+            "start_x",
+            default_value="0.35",
+            description="Forwarded to path_planner.py's 'start_x' parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'start_y',
-            default_value='0.35',
-            description="Forwarded to path_planner.py's 'start_y' "
-            'parameter.',
-        ))
+            "start_y",
+            default_value="0.35",
+            description="Forwarded to path_planner.py's 'start_y' parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'kp_xy',
-            default_value='1.0',
+            "kp_xy",
+            default_value="1.0",
             description="Forwarded to position_controller.py's 'kp_xy' "
-            'parameter.',
-        ))
+            "parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'kp_z',
-            default_value='2.0',
+            "kp_z",
+            default_value="2.0",
             description="Forwarded to position_controller.py's 'kp_z' "
-            'parameter.',
-        ))
+            "parameter.",
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'p_gain',
-            default_value='0.1',
-            description="Forwarded to yaw_controller.py's 'p_gain' "
-            'parameter.',
-        ))
+            "p_gain",
+            default_value="0.1",
+            description="Forwarded to yaw_controller.py's 'p_gain' parameter.",
+        )
+    )
 
-    scalar_field_sim_path = get_package_share_path('scalar_field_sim')
-    scalar_field_belief_path = get_package_share_path('scalar_field_belief')
+    scalar_field_sim_path = get_package_share_path("scalar_field_sim")
+    scalar_field_belief_path = get_package_share_path("scalar_field_belief")
 
     launch_description.add_action(
         DeclareLaunchArgument(
-            'scenario_path',
-            default_value=str(scalar_field_sim_path /
-                              'scenarios/clustered_field_2.toml'),
-        ))
+            "scenario_path",
+            default_value=str(
+                scalar_field_sim_path / "scenarios/clustered_field_2.toml"
+            ),
+        )
+    )
     launch_description.add_action(
         DeclareLaunchArgument(
-            'belief_params',
-            default_value=str(scalar_field_belief_path /
-                              'config/belief_params_default.yaml'),
-        ))
+            "belief_params",
+            default_value=str(
+                scalar_field_belief_path / "config/belief_params_default.yaml"
+            ),
+        )
+    )
 
-    hippo_sim = get_package_share_path('hippo_sim')
+    hippo_sim = get_package_share_path("hippo_sim")
 
     ############################################################################
     # GAZEBO
     ############################################################################
     args = LaunchArgsDict()
-    args.add('start_gui')
+    args.add("start_gui")
     launch_description.add_action(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                str(hippo_sim / 'launch/start_gazebo.launch.py')),
+                str(hippo_sim / "launch/start_gazebo.launch.py")
+            ),
             launch_arguments=args.items(),
-        ))
+        )
+    )
 
     ############################################################################
     # SPAWN BLUEROV
     ############################################################################
     args = LaunchArgsDict()
     args.add_vehicle_name()
-    args['use_sim_time'] = 'true'
+    args["use_sim_time"] = "true"
     launch_description.add_action(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                str(hippo_sim / 'launch/spawn_bluerov.launch.py')),
+                str(hippo_sim / "launch/spawn_bluerov.launch.py")
+            ),
             launch_arguments=args.items(),
-        ))
+        )
+    )
 
     ############################################################################
     # IPP
     ############################################################################
     args = LaunchArgsDict()
-    args.add('vehicle_name')
-    args.add('planner')
-    args.add('rng_seed')
-    args.add('planning_horizon')
-    args.add('planning_time_s')
-    args.add('roi_adaptive_enabled')
-    args.add('roi_threshold')
-    args.add('roi_beta')
-    args.add('goal_tolerance')
-    args.add('robot_z')
-    args.add('start_x')
-    args.add('start_y')
-    args.add('kp_xy')
-    args.add('kp_z')
-    args.add('p_gain')
-    args['use_sim_time'] = 'true'
+    args.add("vehicle_name")
+    args.add("planner")
+    args.add("rng_seed")
+    args.add("planning_horizon")
+    args.add("planning_time_s")
+    args.add("roi_adaptive_enabled")
+    args.add("roi_threshold")
+    args.add("roi_beta")
+    args.add("goal_tolerance")
+    args.add("robot_z")
+    args.add("start_x")
+    args.add("start_y")
+    args.add("kp_xy")
+    args.add("kp_z")
+    args.add("p_gain")
+    args["use_sim_time"] = "true"
     # ir_measurement_sim_node.py does not apply the sensor offset, so
     # path_follower.py must not apply it here either. Otherwise the
     # simulated vehicle would aim off from where it actually measures.
-    args['transformations_file'] = str(
-        get_package_share_path('ipp') / 'config/ir_sensor_offset_zero.yaml')
+    args["transformations_file"] = str(
+        get_package_share_path("ipp") / "config/ir_sensor_offset_zero.yaml"
+    )
     launch_description.add_action(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                str(get_package_share_path('ipp') / 'launch/ipp.launch.py')),
+                str(get_package_share_path("ipp") / "launch/ipp.launch.py")
+            ),
             launch_arguments=args.items(),
-        ))
+        )
+    )
 
     ############################################################################
     # RVIZ VISUALS
     ############################################################################
     launch_description.add_action(
-        GroupAction([
-            PushROSNamespace(LaunchConfiguration('vehicle_name')),
-            Node(
-                executable='robot_marker_publisher',
-                package='ipp_rviz_visuals',
-                parameters=[{
-                    'use_sim_time': True
-                }],
-            ),
-        ]))
+        GroupAction(
+            [
+                PushROSNamespace(LaunchConfiguration("vehicle_name")),
+                Node(
+                    executable="robot_marker_publisher",
+                    package="ipp_rviz_visuals",
+                    parameters=[{"use_sim_time": True}],
+                ),
+            ]
+        )
+    )
 
     ############################################################################
     # SCALAR FIELD SIM (field server + ground-truth visualization)
     ############################################################################
     args = LaunchArgsDict()
-    args.add('scenario_path')
-    args['use_sim_time'] = 'true'
+    args.add("scenario_path")
+    args["use_sim_time"] = "true"
     launch_description.add_action(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                str(scalar_field_sim_path / 'launch/field_sim.launch.py')),
+                str(scalar_field_sim_path / "launch/field_sim.launch.py")
+            ),
             launch_arguments=args.items(),
-        ))
+        )
+    )
 
     ############################################################################
     # MEASUREMENT PIPELINE + GP BELIEF (under vehicle namespace)
     ############################################################################
     launch_description.add_action(
-        GroupAction([
-            PushROSNamespace(LaunchConfiguration('vehicle_name')),
-            Node(
-                package='scalar_field_sim',
-                executable='ir_measurement_sim_node.py',
-                name='ir_measurement_sim',
-                parameters=[{
-                    'use_sim_time': True
-                }],
-                output='screen',
-                emulate_tty=True,
-            ),
-            Node(
-                package='scalar_field_belief',
-                executable='scalar_field_belief_node.py',
-                name='scalar_field_belief',
-                parameters=[
-                    LaunchConfiguration('belief_params'),
-                    {
-                        'use_sim_time': True
-                    },
-                ],
-                output='screen',
-                emulate_tty=True,
-            ),
-        ]))
+        GroupAction(
+            [
+                PushROSNamespace(LaunchConfiguration("vehicle_name")),
+                Node(
+                    package="scalar_field_sim",
+                    executable="ir_measurement_sim_node.py",
+                    name="ir_measurement_sim",
+                    parameters=[{"use_sim_time": True}],
+                    output="screen",
+                    emulate_tty=True,
+                ),
+                Node(
+                    package="scalar_field_belief",
+                    executable="scalar_field_belief_node.py",
+                    name="scalar_field_belief",
+                    parameters=[
+                        LaunchConfiguration("belief_params"),
+                        {"use_sim_time": True},
+                    ],
+                    output="screen",
+                    emulate_tty=True,
+                ),
+            ]
+        )
+    )
 
     return launch_description

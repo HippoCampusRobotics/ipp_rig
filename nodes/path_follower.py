@@ -9,49 +9,54 @@ from geometry_msgs.msg import (
     PoseWithCovarianceStamped,
 )
 from hippo_control_msgs.msg import YawTarget
-from nav_msgs.msg import Path
-from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
+from nav_msgs.msg import Path
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
 from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion
 
 
 class PathFollower(Node):
-
     def __init__(self):
-        super().__init__(node_name='path_follower')
+        super().__init__(node_name="path_follower")
         self.init_services()
-        self.pose_sub = self.create_subscription(PoseWithCovarianceStamped,
-                                                 'vision_pose_cov',
-                                                 self.on_pose, 1)
-        self.yaw_pub = self.create_publisher(YawTarget,
-                                             'yaw_controller/setpoint', 1)
+        self.pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped, "vision_pose_cov", self.on_pose, 1
+        )
+        self.yaw_pub = self.create_publisher(
+            YawTarget, "yaw_controller/setpoint", 1
+        )
         self.position_pub = self.create_publisher(
-            PointStamped, 'position_controller/setpoint', 1)
-        self.path_pub = self.create_publisher(Path, '~/current_path', 1)
+            PointStamped, "position_controller/setpoint", 1
+        )
+        self.path_pub = self.create_publisher(Path, "~/current_path", 1)
 
         self.look_ahead_distance = 0.4
         self.target_index = 0
         self.path: list[PoseStamped] = None
 
     def init_services(self):
-        self.set_path_service = self.create_service(SetPath, '~/set_path',
-                                                    self.serve_set_path)
+        self.set_path_service = self.create_service(
+            SetPath, "~/set_path", self.serve_set_path
+        )
         self.path_finished_service = self.create_service(
-            Trigger, '~/path_finished', self.serve_path_finished)
+            Trigger, "~/path_finished", self.serve_path_finished
+        )
 
     def serve_set_path(self, request, response):
         self.path = request.path.poses
         self.target_index = 0
         self.get_logger().info(
-            f'New path with {len(self.path)} poses has been set.')
+            f"New path with {len(self.path)} poses has been set."
+        )
         response.success = True
         return response
 
     def serve_path_finished(self, request, response: Trigger.Response):
         self.path = None
         response.success = True
-        self.get_logger().info('Path finished. Going to idle mode.')
+        self.get_logger().info("Path finished. Going to idle mode.")
         return response
 
     def on_pose(self, msg: PoseWithCovarianceStamped):
@@ -66,14 +71,14 @@ class PathFollower(Node):
         msg = YawTarget()
         msg.yaw_target = self.yaw_target
         msg.header.stamp = stamp
-        msg.header.frame_id = 'map'
+        msg.header.frame_id = "map"
         self.yaw_pub.publish(msg)
 
         msg = PointStamped(header=msg.header, point=self.position_target)
         self.position_pub.publish(msg)
         if self.path:
             msg = Path()
-            msg.header.frame_id = 'map'
+            msg.header.frame_id = "map"
             msg.header.stamp = stamp
             msg.poses = self.path
             self.path_pub.publish(msg)
@@ -90,8 +95,9 @@ class PathFollower(Node):
         reached_end = False
         while True:
             target_position = self.path[index].pose.position
-            d = (current_position.x - target_position.x)**2 + (
-                current_position.y - target_position.y)**2
+            d = (current_position.x - target_position.x) ** 2 + (
+                current_position.y - target_position.y
+            ) ** 2
             if look_ahead_square <= d:
                 self.target_index = index
                 break
@@ -108,7 +114,8 @@ class PathFollower(Node):
         else:
             self.yaw_target = math.atan2(
                 target_pose.position.y - current_position.y,
-                target_pose.position.x - current_position.x)
+                target_pose.position.x - current_position.x,
+            )
         return True
 
 
@@ -117,9 +124,12 @@ def main():
     node = PathFollower()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

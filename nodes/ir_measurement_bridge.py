@@ -4,6 +4,7 @@ from collections import deque
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Point, Pose, PoseWithCovarianceStamped
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from scalar_field_interfaces.msg import ScalarMeasurement
 from std_msgs.msg import Float32
@@ -25,78 +26,121 @@ class IrMeasurementBridge(Node):
     """
 
     def __init__(self):
-        super().__init__(node_name='ir_measurement_bridge')
+        super().__init__(node_name="ir_measurement_bridge")
 
         default_topics = [
-            f'/photodiode_array/diode_{i + 1}' for i in range(NUM_CHANNELS)
+            f"/photodiode_array/diode_{i + 1}" for i in range(NUM_CHANNELS)
         ]
-        self.declare_parameter('ir_channel_topics', default_topics)
-        self.declare_parameter('pose_topic', 'vision_pose_cov_bridged')
-        self.declare_parameter('measurement_topic', 'ir_measurement')
-        self.declare_parameter('trigger_service_name', 'trigger_ir_measurement')
-        self.declare_parameter('frame_id', 'map')
-        self.declare_parameter('fusion_window_s', 0.1)
+        self.declare_parameter("ir_channel_topics", default_topics)
+        self.declare_parameter("pose_topic", "vision_pose_cov_bridged")
+        self.declare_parameter("measurement_topic", "ir_measurement")
+        self.declare_parameter("trigger_service_name", "trigger_ir_measurement")
+        self.declare_parameter("frame_id", "map")
+        self.declare_parameter("fusion_window_s", 0.1)
 
         # Sensor mount offset relative to base_link, same values as
         # hippo_common's ir_sensor tf. Applied to the vehicle pose to get
         # the true sensor position reported in each measurement.
-        self.declare_parameter('ir_sensor.x', 0.0)
-        self.declare_parameter('ir_sensor.y', 0.0)
-        self.declare_parameter('ir_sensor.z', 0.0)
-        self._ir_sensor_offset = np.array([
-            self.get_parameter('ir_sensor.x').value,
-            self.get_parameter('ir_sensor.y').value,
-            self.get_parameter('ir_sensor.z').value,
-        ])
+        self.declare_parameter("ir_sensor.x", 0.0)
+        self.declare_parameter("ir_sensor.y", 0.0)
+        self.declare_parameter("ir_sensor.z", 0.0)
+        self._ir_sensor_offset = np.array(
+            [
+                self.get_parameter("ir_sensor.x").value,
+                self.get_parameter("ir_sensor.y").value,
+                self.get_parameter("ir_sensor.z").value,
+            ]
+        )
 
-        channel_topics = list(self.get_parameter('ir_channel_topics').value)
+        channel_topics = list(self.get_parameter("ir_channel_topics").value)
         if len(channel_topics) != NUM_CHANNELS:
             raise ValueError(
-                f'ir_channel_topics must have {NUM_CHANNELS} entries, '
-                f'got {len(channel_topics)}.')
+                f"ir_channel_topics must have {NUM_CHANNELS} entries, "
+                f"got {len(channel_topics)}."
+            )
         self._measurement_topic = str(
-            self.get_parameter('measurement_topic').value)
+            self.get_parameter("measurement_topic").value
+        )
         self._trigger_service_name = str(
-            self.get_parameter('trigger_service_name').value)
-        self._frame_id = str(self.get_parameter('frame_id').value)
+            self.get_parameter("trigger_service_name").value
+        )
+        self._frame_id = str(self.get_parameter("frame_id").value)
         self._fusion_window_s = float(
-            self.get_parameter('fusion_window_s').value)
+            self.get_parameter("fusion_window_s").value
+        )
 
         self._current_pose = None
         self._channel_buffers = [deque() for _ in range(NUM_CHANNELS)]
 
         self._channel_subs = [
-            self.create_subscription(Float32, channel_topics[0],
-                                     lambda msg: self._on_channel(0, msg), 10),
-            self.create_subscription(Float32, channel_topics[1],
-                                     lambda msg: self._on_channel(1, msg), 10),
-            self.create_subscription(Float32, channel_topics[2],
-                                     lambda msg: self._on_channel(2, msg), 10),
-            self.create_subscription(Float32, channel_topics[3],
-                                     lambda msg: self._on_channel(3, msg), 10),
-            self.create_subscription(Float32, channel_topics[4],
-                                     lambda msg: self._on_channel(4, msg), 10),
-            self.create_subscription(Float32, channel_topics[5],
-                                     lambda msg: self._on_channel(5, msg), 10),
-            self.create_subscription(Float32, channel_topics[6],
-                                     lambda msg: self._on_channel(6, msg), 10),
-            self.create_subscription(Float32, channel_topics[7],
-                                     lambda msg: self._on_channel(7, msg), 10),
-            self.create_subscription(Float32, channel_topics[8],
-                                     lambda msg: self._on_channel(8, msg), 10),
+            self.create_subscription(
+                Float32,
+                channel_topics[0],
+                lambda msg: self._on_channel(0, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[1],
+                lambda msg: self._on_channel(1, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[2],
+                lambda msg: self._on_channel(2, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[3],
+                lambda msg: self._on_channel(3, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[4],
+                lambda msg: self._on_channel(4, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[5],
+                lambda msg: self._on_channel(5, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[6],
+                lambda msg: self._on_channel(6, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[7],
+                lambda msg: self._on_channel(7, msg),
+                10,
+            ),
+            self.create_subscription(
+                Float32,
+                channel_topics[8],
+                lambda msg: self._on_channel(8, msg),
+                10,
+            ),
         ]
 
-        pose_topic = str(self.get_parameter('pose_topic').value)
-        self._pose_sub = self.create_subscription(PoseWithCovarianceStamped,
-                                                  pose_topic, self._on_pose, 10)
+        pose_topic = str(self.get_parameter("pose_topic").value)
+        self._pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped, pose_topic, self._on_pose, 10
+        )
 
-        self._measurement_pub = self.create_publisher(ScalarMeasurement,
-                                                      self._measurement_topic,
-                                                      10)
+        self._measurement_pub = self.create_publisher(
+            ScalarMeasurement, self._measurement_topic, 10
+        )
 
-        self._trigger_srv = self.create_service(Trigger,
-                                                self._trigger_service_name,
-                                                self._handle_trigger)
+        self._trigger_srv = self.create_service(
+            Trigger, self._trigger_service_name, self._handle_trigger
+        )
 
     def _on_channel(self, index: int, msg: Float32):
         self._channel_buffers[index].append((self.get_clock().now(), msg.data))
@@ -107,28 +151,34 @@ class IrMeasurementBridge(Node):
     def _sensor_pose(self) -> Pose:
         orientation = self._current_pose.orientation
         rotation = quaternion_matrix(
-            [orientation.x, orientation.y, orientation.z,
-             orientation.w])[:3, :3]
+            [orientation.x, orientation.y, orientation.z, orientation.w]
+        )[:3, :3]
         offset = rotation @ self._ir_sensor_offset
         position = self._current_pose.position
-        return Pose(position=Point(x=position.x + offset[0],
-                                   y=position.y + offset[1],
-                                   z=position.z + offset[2]),
-                    orientation=orientation)
+        return Pose(
+            position=Point(
+                x=position.x + offset[0],
+                y=position.y + offset[1],
+                z=position.z + offset[2],
+            ),
+            orientation=orientation,
+        )
 
     def _drop_stale(self, buffer: deque):
         cutoff = self.get_clock().now() - rclpy.time.Duration(
-            seconds=self._fusion_window_s)
+            seconds=self._fusion_window_s
+        )
         while buffer and buffer[0][0] < cutoff:
             buffer.popleft()
 
-    def _handle_trigger(self, request: Trigger.Request,
-                        response: Trigger.Response) -> Trigger.Response:
+    def _handle_trigger(
+        self, request: Trigger.Request, response: Trigger.Response
+    ) -> Trigger.Response:
         del request
 
         if self._current_pose is None:
             response.success = False
-            response.message = 'No vehicle pose received yet.'
+            response.message = "No vehicle pose received yet."
             return response
 
         channel_means = []
@@ -136,7 +186,7 @@ class IrMeasurementBridge(Node):
             self._drop_stale(buffer)
             if not buffer:
                 response.success = False
-                response.message = f'No recent data on IR channel {i}.'
+                response.message = f"No recent data on IR channel {i}."
                 return response
             values = [value for _, value in buffer]
             channel_means.append(sum(values) / len(values))
@@ -150,7 +200,7 @@ class IrMeasurementBridge(Node):
         self._measurement_pub.publish(measurement)
 
         response.success = True
-        response.message = 'Published one fused IR measurement.'
+        response.message = "Published one fused IR measurement."
         return response
 
 
@@ -159,9 +209,12 @@ def main():
     node = IrMeasurementBridge()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
