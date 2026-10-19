@@ -12,8 +12,15 @@ from math import pi
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point, Pose, PoseStamped, PoseWithCovarianceStamped, Quaternion
+from geometry_msgs.msg import (
+    Point,
+    Pose,
+    PoseStamped,
+    PoseWithCovarianceStamped,
+    Quaternion,
+)
 from nav_msgs.msg import OccupancyGrid, Path
+from rclpy.executors import ExternalShutdownException
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from ipp_interfaces.srv import SetPath
@@ -24,7 +31,7 @@ from tf_transformations import quaternion_from_euler
 from visualization_msgs.msg import Marker
 
 # Tells Python to look for rig_tree.py/lawnmower.py in the same directory as this file.
-sys.path.insert(0, __file__.rsplit('/', 1)[0])
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from rig_tree import RIGTree
 from lawnmower import generate_lawnmower_path
 
@@ -32,7 +39,8 @@ from lawnmower import generate_lawnmower_path
 # symlink-installed, so __file__ resolves to this source path even when
 # launched from the colcon install space.
 _WORKSPACE_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', '..'))
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..")
+)
 
 
 class State(Enum):
@@ -62,7 +70,7 @@ class PathPlanner(Node):
     """
 
     def __init__(self):
-        super().__init__(node_name='path_planner')
+        super().__init__(node_name="path_planner")
         self.state = State.IDLE
 
         self._declare_parameters()
@@ -95,8 +103,9 @@ class PathPlanner(Node):
         self.init_services()
         self._control_timer = self.create_timer(0.1, self.control_timer_cb)
         self._measurement_timer = self.create_timer(
-            self.get_parameter('measurement_period_s').value,
-            self._trigger_measurement)
+            self.get_parameter("measurement_period_s").value,
+            self._trigger_measurement,
+        )
 
     # ------------------------------------------------------------------
     # Algorithm parameters
@@ -105,7 +114,7 @@ class PathPlanner(Node):
     def _declare_parameters(self):
         # 'rig' (RIG-tree), 'lawnmower' (non-informative coverage baseline),
         # or 'random' (RIG-tree without variance information, i.e. a random walk).
-        self.declare_parameter('planner_type', 'rig')
+        self.declare_parameter("planner_type", "rig")
 
         # Seeds Python's random module (used by RIGTree.Sample()), combined
         # with the planning-cycle count, at the start of every planning
@@ -113,31 +122,31 @@ class PathPlanner(Node):
         # Set the same non-negative seed across a rig/random comparison run
         # to make the planners see the same sequence of sample draws every
         # cycle, for a fair, reproducible comparison.
-        self.declare_parameter('rng_seed', -1)
+        self.declare_parameter("rng_seed", -1)
 
         # Distance (m) between sweep lanes. Only used when planner_type='lawnmower'.
-        self.declare_parameter('lane_spacing', 0.18)
+        self.declare_parameter("lane_spacing", 0.18)
 
         # Wall clearance (m) for the lawnmower's short-end turn-arounds only
         # (the long-side margin still uses start_x). Independent of start_y so
         # the robot's actual move_to_start position is unaffected.
         # Only used when planner_type='lawnmower'.
-        self.declare_parameter('lawnmower_end_margin', 0.15)
+        self.declare_parameter("lawnmower_end_margin", 0.15)
 
         # Planning horizon (number of nodes/edges from the root) per cycle,
         # B in the paper (Section 4.1). Nodes whose depth reaches B enter the
         # closed set and represent complete paths, which is then sent to
         # path_follower in full (one node per edge from the root).
         # Larger value means longer path per cycle and less frequent replanning.
-        self.declare_parameter('planning_horizon', 6)
+        self.declare_parameter("planning_horizon", 6)
 
         # Maximum edge length (m) between two tree nodes, Delta in the paper.
-        self.declare_parameter('delta', 0.5)
+        self.declare_parameter("delta", 0.5)
 
         # Neighbourhood radius (m) for the Near() search, R in the paper.
         # The paper leaves R open ("heuristically set", Section 4).
         # Larger value means more connections per iteration but slower planning.
-        self.declare_parameter('near_radius', 0.7)
+        self.declare_parameter("near_radius", 0.7)
 
         # Planning time per cycle (s). RIG-tree is an anytime algorithm
         # ("while not terminated", Algorithm 2) and runs as long as the operator allows.
@@ -145,47 +154,47 @@ class PathPlanner(Node):
         # path is ready before the robot reaches the path end. If it is longer, the
         # robot waits at the path end and planning_time_s effectively becomes the
         # replanning frequency.
-        self.declare_parameter('planning_time_s', 2.0)
+        self.declare_parameter("planning_time_s", 2.0)
 
         # Distance (m) to the last waypoint that triggers a new planning cycle.
         # The timer checks this condition: it is the paper-conform "budget expended"
         # signal (Section 4.1). Should be smaller than look_ahead_distance of
         # path_follower (0.3 m).
-        self.declare_parameter('goal_tolerance', 0.3)
+        self.declare_parameter("goal_tolerance", 0.3)
 
         # Start position for the move_to_start service.
-        self.declare_parameter('robot_z', (-1.0 + 0.16))  # Sensor Offset
-        self.declare_parameter('start_x', 0.5)
-        self.declare_parameter('start_y', 0.5)
-        self.declare_parameter('start_yaw', pi / 2.0)
+        self.declare_parameter("robot_z", (-1.0 + 0.16))  # Sensor Offset
+        self.declare_parameter("start_x", 0.5)
+        self.declare_parameter("start_y", 0.5)
+        self.declare_parameter("start_yaw", pi / 2.0)
 
         # Time-based safety fallback, not paper-conform.
         # Forces replanning if the robot never reaches the path end (e.g. stuck).
-        self.declare_parameter('replan_timeout_s', 30.0)
+        self.declare_parameter("replan_timeout_s", 30.0)
 
         # Period (s) between IR measurement triggers while executing a path.
         # 0.2 s = 5 Hz.
-        self.declare_parameter('measurement_period_s', 0.5)
+        self.declare_parameter("measurement_period_s", 0.5)
 
         # Points per axis for the fixed grid used to evaluate how informative
         # a candidate path is (grid size is info_grid_resolution^2). Bigger
         # grid = more accurate information gain but slower, since every
         # RIG-tree iteration queries all grid points together with the
         # candidates.
-        self.declare_parameter('info_grid_resolution', 25)
+        self.declare_parameter("info_grid_resolution", 25)
 
         # Adaptive, value-dependent region-of-interest weighting (Hitz et al.
         # 2017)
-        self.declare_parameter('roi_adaptive_enabled', False)
+        self.declare_parameter("roi_adaptive_enabled", False)
 
         # f_th in Hitz et al. Eq. 14: field value above which a grid point
         # counts as "interesting"
-        self.declare_parameter('roi_threshold', 0.0010)
+        self.declare_parameter("roi_threshold", 0.0010)
 
         # beta in Hitz et al. Eq. 15: confidence margin on the posterior
         # std-dev used to classify a grid point as confidently below
         # roi_threshold
-        self.declare_parameter('roi_beta', 1.0)
+        self.declare_parameter("roi_beta", 1.0)
 
         # Minimum number of measurements before the ROI mask is trusted.
         # With very few measurements, the belief's target standardizer
@@ -193,138 +202,171 @@ class PathPlanner(Node):
         # sigma come back in the wrong physical units (volts). Below this
         # count, roi_adaptive_enabled falls back to uniform weighting,
         # same as if it were disabled.
-        self.declare_parameter('roi_min_measurements', 40)
+        self.declare_parameter("roi_min_measurements", 40)
 
     # ------------------------------------------------------------------
     # Debug logging (info-increment / measurement-count / tree checks)
     # ------------------------------------------------------------------
 
     def _init_debug_logs(self):
-        run_ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_dir = os.path.join(_WORKSPACE_ROOT, 'debug_logs', 'path_planner',
-                               run_ts)
+        run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = os.path.join(
+            _WORKSPACE_ROOT, "debug_logs", "path_planner", run_ts
+        )
         os.makedirs(log_dir, exist_ok=True)
 
         self._info_csv = csv.writer(
-            open(os.path.join(log_dir, 'info_increments.csv'),
-                 'w',
-                 newline='',
-                 buffering=1))
+            open(
+                os.path.join(log_dir, "info_increments.csv"),
+                "w",
+                newline="",
+                buffering=1,
+            )
+        )
         self._info_csv.writerow(
-            ['cycle', 'call_idx', 'n_candidates', 'min', 'max', 'mean', 'std'])
+            ["cycle", "call_idx", "n_candidates", "min", "max", "mean", "std"]
+        )
 
         self._meas_csv = csv.writer(
-            open(os.path.join(log_dir, 'measurement_count.csv'),
-                 'w',
-                 newline='',
-                 buffering=1))
+            open(
+                os.path.join(log_dir, "measurement_count.csv"),
+                "w",
+                newline="",
+                buffering=1,
+            )
+        )
         self._meas_csv.writerow(
-            ['cycle', 'ros_time_s', 'x_start_x', 'x_start_y'])
+            ["cycle", "ros_time_s", "x_start_x", "x_start_y"]
+        )
 
         self._tree_csv = csv.writer(
-            open(os.path.join(log_dir, 'tree_stats.csv'),
-                 'w',
-                 newline='',
-                 buffering=1))
-        self._tree_csv.writerow([
-            'cycle', 'n_nodes', 'n_closed', 'best_info', 'closed_info_min',
-            'closed_info_max', 'closed_info_mean', 'closed_info_std'
-        ])
+            open(
+                os.path.join(log_dir, "tree_stats.csv"),
+                "w",
+                newline="",
+                buffering=1,
+            )
+        )
+        self._tree_csv.writerow(
+            [
+                "cycle",
+                "n_nodes",
+                "n_closed",
+                "best_info",
+                "closed_info_min",
+                "closed_info_max",
+                "closed_info_mean",
+                "closed_info_std",
+            ]
+        )
 
         self._path_csv = csv.writer(
-            open(os.path.join(log_dir, 'best_path.csv'),
-                 'w',
-                 newline='',
-                 buffering=1))
-        self._path_csv.writerow(['cycle', 'point_idx', 'x', 'y'])
+            open(
+                os.path.join(log_dir, "best_path.csv"),
+                "w",
+                newline="",
+                buffering=1,
+            )
+        )
+        self._path_csv.writerow(["cycle", "point_idx", "x", "y"])
 
-        self.get_logger().info(f'Debug logs: {log_dir}')
+        self.get_logger().info(f"Debug logs: {log_dir}")
 
     def _log_info_increments(self, arr: np.ndarray):
         self._info_call_idx += 1
-        self._info_csv.writerow([
-            self._planning_cycle, self._info_call_idx,
-            len(arr),
-            float(arr.min()),
-            float(arr.max()),
-            float(arr.mean()),
-            float(arr.std())
-        ])
+        self._info_csv.writerow(
+            [
+                self._planning_cycle,
+                self._info_call_idx,
+                len(arr),
+                float(arr.min()),
+                float(arr.max()),
+                float(arr.mean()),
+                float(arr.std()),
+            ]
+        )
 
     def _log_measurement_cycle(self, x_start: np.ndarray):
         now = self.get_clock().now().nanoseconds * 1e-9
         self._meas_csv.writerow(
-            [self._planning_cycle, now,
-             float(x_start[0]),
-             float(x_start[1])])
+            [self._planning_cycle, now, float(x_start[0]), float(x_start[1])]
+        )
 
     def _log_tree_stats(self, stats: dict):
-        self._tree_csv.writerow([
-            self._planning_cycle, stats['nodes'], stats['closed'],
-            stats.get('best_info'),
-            stats.get('closed_info_min'),
-            stats.get('closed_info_max'),
-            stats.get('closed_info_mean'),
-            stats.get('closed_info_std')
-        ])
+        self._tree_csv.writerow(
+            [
+                self._planning_cycle,
+                stats["nodes"],
+                stats["closed"],
+                stats.get("best_info"),
+                stats.get("closed_info_min"),
+                stats.get("closed_info_max"),
+                stats.get("closed_info_mean"),
+                stats.get("closed_info_std"),
+            ]
+        )
 
     def _log_best_path(self, path: list):
         for i, point in enumerate(path):
             self._path_csv.writerow(
-                [self._planning_cycle, i,
-                 float(point[0]),
-                 float(point[1])])
+                [self._planning_cycle, i, float(point[0]), float(point[1])]
+            )
 
     # ------------------------------------------------------------------
     # ROS connections setup
     # ------------------------------------------------------------------
 
     def init_publishers(self):
-        self.path_marker_pub = self.create_publisher(Marker, '~/marker', 1)
+        self.path_marker_pub = self.create_publisher(Marker, "~/marker", 1)
 
     def init_subscribers(self):
-        self.grid_map_sub = self.create_subscription(OccupancyGrid,
-                                                     'occupancy_grid',
-                                                     self.on_occupancy_grid, 1)
-        self.pose_sub = self.create_subscription(PoseWithCovarianceStamped,
-                                                 'vision_pose_cov',
-                                                 self.on_pose, 1)
+        self.grid_map_sub = self.create_subscription(
+            OccupancyGrid, "occupancy_grid", self.on_occupancy_grid, 1
+        )
+        self.pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped, "vision_pose_cov", self.on_pose, 1
+        )
 
     def init_services(self):
-        self.start_service = self.create_service(Trigger, '~/start',
-                                                 self.serve_start)
-        self.stop_service = self.create_service(Trigger, '~/stop',
-                                                self.serve_stop)
+        self.start_service = self.create_service(
+            Trigger, "~/start", self.serve_start
+        )
+        self.stop_service = self.create_service(
+            Trigger, "~/stop", self.serve_stop
+        )
         self.move_to_start_service = self.create_service(
-            Trigger, '~/move_to_start', self.serve_move_to_start)
+            Trigger, "~/move_to_start", self.serve_move_to_start
+        )
 
     def init_clients(self):
         cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
-        self.set_path_client = self.create_client(SetPath,
-                                                  'path_follower/set_path',
-                                                  callback_group=cb_group)
+        self.set_path_client = self.create_client(
+            SetPath, "path_follower/set_path", callback_group=cb_group
+        )
         self.path_finished_client = self.create_client(
-            Trigger, 'path_follower/path_finished', callback_group=cb_group)
+            Trigger, "path_follower/path_finished", callback_group=cb_group
+        )
 
         belief_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
         self.belief_covariance_client = self.create_client(
             QueryScalarFieldBeliefCovariance,
-            'query_scalar_field_belief_covariance',
+            "query_scalar_field_belief_covariance",
             callback_group=belief_cb_group,
         )
 
-        measurement_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup(
+        measurement_cb_group = (
+            rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
         )
         self.measurement_client = self.create_client(
             Trigger,
-            'trigger_ir_measurement',
+            "trigger_ir_measurement",
             callback_group=measurement_cb_group,
         )
 
         reset_cb_group = rclpy.callback_groups.MutuallyExclusiveCallbackGroup()
         self.reset_belief_client = self.create_client(
             Trigger,
-            'reset_scalar_field_belief',
+            "reset_scalar_field_belief",
             callback_group=reset_cb_group,
         )
 
@@ -346,7 +388,7 @@ class PathPlanner(Node):
 
     def serve_start(self, _request, response):
         self.get_logger().info(
-            f'Start requested, planner_type={self.get_parameter("planner_type").value}.'
+            f"Start requested, planner_type={self.get_parameter('planner_type').value}."
         )
         # One measurement at the start position before the first planning
         # cycle, so the very first cycle already evaluates candidates against
@@ -359,7 +401,7 @@ class PathPlanner(Node):
         return response
 
     def serve_stop(self, _request, response):
-        self.get_logger().info('Stop requested.')
+        self.get_logger().info("Stop requested.")
         response.success = self.do_stop()
         return response
 
@@ -382,14 +424,16 @@ class PathPlanner(Node):
     def serve_move_to_start(self, _request, response):
         if self.state != State.IDLE:
             self.get_logger().warn(
-                f'move_to_start ignored: state={self.state.name}')
+                f"move_to_start ignored: state={self.state.name}"
+            )
             response.success = False
         elif self.current_pose is not None:
-            self.get_logger().info('Move to start requested.')
+            self.get_logger().info("Move to start requested.")
             response.success = self.do_move_to_start()
         else:
             self.get_logger().info(
-                'Move to start requested, waiting for pose ...')
+                "Move to start requested, waiting for pose ..."
+            )
             self._move_to_start_pending = True
             response.success = True
         return response
@@ -397,24 +441,24 @@ class PathPlanner(Node):
     def do_move_to_start(self):
         if self.reset_belief_client.service_is_ready():
             self.reset_belief_client.call_async(Trigger.Request())
-            self.get_logger().info('Belief reset.')
-        z = self.get_parameter('robot_z').value
-        gx = self.get_parameter('start_x').value
-        gy = self.get_parameter('start_y').value
+            self.get_logger().info("Belief reset.")
+        z = self.get_parameter("robot_z").value
+        gx = self.get_parameter("start_x").value
+        gy = self.get_parameter("start_y").value
 
         cx = self.current_pose.position.x
         cy = self.current_pose.position.y
 
         dist = math.hypot(gx - cx, gy - cy)
-        n = max(2,
-                math.ceil(dist / 0.3) +
-                1)  # waypoints at 0.3 m spacing, at least 2
+        n = max(
+            2, math.ceil(dist / 0.3) + 1
+        )  # waypoints at 0.3 m spacing, at least 2
 
-        start_yaw = self.get_parameter('start_yaw').value
+        start_yaw = self.get_parameter("start_yaw").value
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = 'map'
+        header.frame_id = "map"
 
         # Straight-line waypoints at 0.3 m spacing
         xs = np.linspace(cx, gx, n)
@@ -427,11 +471,14 @@ class PathPlanner(Node):
         for i, (x, y) in enumerate(zip(xs, ys)):
             orientation = last_orientation if i == n - 1 else Quaternion()
             poses.append(
-                PoseStamped(header=header,
-                            pose=Pose(position=Point(x=float(x),
-                                                     y=float(y),
-                                                     z=z),
-                                      orientation=orientation)))
+                PoseStamped(
+                    header=header,
+                    pose=Pose(
+                        position=Point(x=float(x), y=float(y), z=z),
+                        orientation=orientation,
+                    ),
+                )
+            )
 
         ros_path = Path()
         ros_path.poses = poses
@@ -452,42 +499,46 @@ class PathPlanner(Node):
             if self.current_pose is None or self.occupancy_matrix is None:
                 missing = []
                 if self.current_pose is None:
-                    missing.append('vision_pose_cov')
+                    missing.append("vision_pose_cov")
                 if self.occupancy_matrix is None:
-                    missing.append('occupancy_grid')
+                    missing.append("occupancy_grid")
                 self.get_logger().warn(
-                    f'Cannot plan: waiting for {", ".join(missing)}.',
-                    throttle_duration_sec=2.0)
+                    f"Cannot plan: waiting for {', '.join(missing)}.",
+                    throttle_duration_sec=2.0,
+                )
                 return
             self._planning_active = True
             cancel_event = threading.Event()
             self._planning_cancel_event = cancel_event
 
-        if self.get_parameter('planner_type').value == 'lawnmower':
+        if self.get_parameter("planner_type").value == "lawnmower":
             # Cheap geometry, no need for a background thread.
             self.run_lawnmower_planning()
         else:
-            threading.Thread(target=self.run_planning,
-                             args=(cancel_event, ),
-                             daemon=True).start()
+            threading.Thread(
+                target=self.run_planning, args=(cancel_event,), daemon=True
+            ).start()
 
     def run_lawnmower_planning(self):
-        x_start = np.array([
-            self.get_parameter('start_x').value,
-            self.get_parameter('start_y').value,
-        ])
+        x_start = np.array(
+            [
+                self.get_parameter("start_x").value,
+                self.get_parameter("start_y").value,
+            ]
+        )
         height, width = self.occupancy_matrix.shape
 
         path = generate_lawnmower_path(
             x_start=x_start,
             x_max=width * self.cell_size,
             y_max=height * self.cell_size,
-            lane_spacing=self.get_parameter('lane_spacing').value,
-            waypoint_spacing=self.get_parameter('delta').value,
-            end_margin=self.get_parameter('lawnmower_end_margin').value,
+            lane_spacing=self.get_parameter("lane_spacing").value,
+            waypoint_spacing=self.get_parameter("delta").value,
+            end_margin=self.get_parameter("lawnmower_end_margin").value,
         )
         self.get_logger().info(
-            f'Lawnmower coverage path with {len(path)} waypoints.')
+            f"Lawnmower coverage path with {len(path)} waypoints."
+        )
 
         with self._lock:
             self._pending_path = path
@@ -500,19 +551,20 @@ class PathPlanner(Node):
         # skips the GP call and does more Sample() draws per cycle than
         # 'rig', so a single seed at mission start would desync them after
         # the first cycle.
-        rng_seed = self.get_parameter('rng_seed').value
+        rng_seed = self.get_parameter("rng_seed").value
         if rng_seed >= 0:
             random.seed(rng_seed * 10000 + self._planning_cycle)
         # The robot is stationary (holding at the previous path's end) for
         # the whole PLANNING phase, so the live pose is exactly x_start.
         pose = self.current_pose
         x_start = np.array([pose.position.x, pose.position.y])
-        planning_time_s = self.get_parameter('planning_time_s').value
+        planning_time_s = self.get_parameter("planning_time_s").value
         grid = self.occupancy_matrix.copy()
 
         self.get_logger().info(
-            f'Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), '
-            f'horizon={self.get_parameter("planning_horizon").value} nodes ...')
+            f"Planning from ({x_start[0]:.2f}, {x_start[1]:.2f}), "
+            f"horizon={self.get_parameter('planning_horizon').value} nodes ..."
+        )
 
         self._log_measurement_cycle(x_start)
 
@@ -520,24 +572,27 @@ class PathPlanner(Node):
         # reused for every candidate the tree evaluates.
         info_grid_points = self._build_info_grid()
 
-        is_random = self.get_parameter('planner_type').value == 'random'
+        is_random = self.get_parameter("planner_type").value == "random"
         tree = RIGTree(
-            delta=self.get_parameter('delta').value,
-            planning_horizon=self.get_parameter('planning_horizon').value,
+            delta=self.get_parameter("delta").value,
+            planning_horizon=self.get_parameter("planning_horizon").value,
             x_start=x_start,
-            R=self.get_parameter('near_radius').value,
+            R=self.get_parameter("near_radius").value,
             grid=grid,
             resolution=self.cell_size,
             batch_info_fn=None
-            if is_random else self.make_batch_info_fn(info_grid_points),
+            if is_random
+            else self.make_batch_info_fn(info_grid_points),
         )
-        stats = tree.run(planning_time_s=planning_time_s,
-                         cancel_event=cancel_event)
+        stats = tree.run(
+            planning_time_s=planning_time_s, cancel_event=cancel_event
+        )
         self.get_logger().info(
-            f'Planning done ({stats["stopped_reason"]}): {stats["iterations"]} iterations '
-            f'in {stats["elapsed_s"]:.2f} s, '
-            f'{stats["nodes_added"]} nodes added ({stats["nodes"]} total, {stats["closed"]} closed), '
-            f'{stats["gp_calls"]} belief covariance calls')
+            f"Planning done ({stats['stopped_reason']}): {stats['iterations']} iterations "
+            f"in {stats['elapsed_s']:.2f} s, "
+            f"{stats['nodes_added']} nodes added ({stats['nodes']} total, {stats['closed']} closed), "
+            f"{stats['gp_calls']} belief covariance calls"
+        )
         self._log_tree_stats(stats)
         path = tree.best_path()
         self._log_best_path(path)
@@ -566,7 +621,7 @@ class PathPlanner(Node):
         run_planning() and then reused for every candidate evaluated in that
         cycle.
         """
-        n = self.get_parameter('info_grid_resolution').value
+        n = self.get_parameter("info_grid_resolution").value
         height, width = self.occupancy_matrix.shape
         x_max = width * self.cell_size
         y_max = height * self.cell_size
@@ -597,14 +652,14 @@ class PathPlanner(Node):
         """
         if not self.belief_covariance_client.service_is_ready():
             self.get_logger().warn(
-                'Belief covariance service not ready, using uniform information.'
+                "Belief covariance service not ready, using uniform information."
             )
             return None
 
-        roi_adaptive_enabled = self.get_parameter('roi_adaptive_enabled').value
-        roi_threshold = self.get_parameter('roi_threshold').value
-        roi_beta = self.get_parameter('roi_beta').value
-        roi_min_measurements = self.get_parameter('roi_min_measurements').value
+        roi_adaptive_enabled = self.get_parameter("roi_adaptive_enabled").value
+        roi_threshold = self.get_parameter("roi_threshold").value
+        roi_beta = self.get_parameter("roi_beta").value
+        roi_min_measurements = self.get_parameter("roi_min_measurements").value
 
         n_grid = len(grid_points)
         # Grid queries are identical on every call this cycle, so build
@@ -613,7 +668,7 @@ class PathPlanner(Node):
         grid_query_poses = []
         for pos in grid_points:
             ps = PoseStamped()
-            ps.header.frame_id = 'map'
+            ps.header.frame_id = "map"
             ps.pose.position.x = float(pos[0])
             ps.pose.position.y = float(pos[1])
             grid_query_poses.append(ps)
@@ -644,7 +699,7 @@ class PathPlanner(Node):
             request.queries.extend(grid_query_poses)
             for pos in query_points:
                 ps = PoseStamped()
-                ps.header.frame_id = 'map'
+                ps.header.frame_id = "map"
                 ps.pose.position.x = float(pos[0])
                 ps.pose.position.y = float(pos[1])
                 request.queries.append(ps)
@@ -657,8 +712,11 @@ class PathPlanner(Node):
                 return [1.0] * len(paths)  # Fallback, just put 1 for every path
             result = future.result()
             n = n_grid + len(query_points)
-            if (result is None or not result.success
-                    or len(result.covariance_matrix) != n * n):
+            if (
+                result is None
+                or not result.success
+                or len(result.covariance_matrix) != n * n
+            ):
                 return [1.0] * len(paths)  # Fallback, just put 1 for every path
 
             # reshape flat list that the ROS2 service sends into the proper matrix
@@ -674,12 +732,17 @@ class PathPlanner(Node):
 
             # Value-dependent region-of-interest (ROI) weighting (Hitz et al. 2017,
             # Sec. 4.3, Eq. 14-15)
-            if roi_adaptive_enabled and self._n_measurements >= roi_min_measurements:
+            if (
+                roi_adaptive_enabled
+                and self._n_measurements >= roi_min_measurements
+            ):
                 mean_grid = np.asarray(result.mean[:n_grid])
                 sigma_grid = np.sqrt(
-                    np.clip(np.diag(cov[:n_grid, :n_grid]), 0.0, None))
-                roi_weights = (mean_grid + roi_beta * sigma_grid
-                               >= roi_threshold).astype(float)
+                    np.clip(np.diag(cov[:n_grid, :n_grid]), 0.0, None)
+                )
+                roi_weights = (
+                    mean_grid + roi_beta * sigma_grid >= roi_threshold
+                ).astype(float)
             else:
                 roi_weights = np.ones(n_grid)
 
@@ -741,12 +804,14 @@ class PathPlanner(Node):
                 # valid. Drop it instead of running it.
                 self._move_to_start_pending = False
                 self.get_logger().warn(
-                    'Dropping pending move_to_start: state changed to '
-                    f'{self.state.name} before the pose arrived.')
+                    "Dropping pending move_to_start: state changed to "
+                    f"{self.state.name} before the pose arrived."
+                )
             elif self.current_pose is not None:
                 self._move_to_start_pending = False
                 self.get_logger().info(
-                    'Pose available, executing pending move_to_start.')
+                    "Pose available, executing pending move_to_start."
+                )
                 self.do_move_to_start()
             return
 
@@ -786,32 +851,34 @@ class PathPlanner(Node):
         # of the current path (_path_end) and replans once it is close
         # enough.
         pos = self.current_pose.position
-        dist = math.sqrt((pos.x - self._path_end[0])**2 +
-                         (pos.y - self._path_end[1])**2)
+        dist = math.sqrt(
+            (pos.x - self._path_end[0]) ** 2 + (pos.y - self._path_end[1]) ** 2
+        )
 
-        if dist < self.get_parameter('goal_tolerance').value:
-            if self.get_parameter('planner_type').value == 'lawnmower':
-                self.get_logger().info('Lawnmower coverage finished.')
+        if dist < self.get_parameter("goal_tolerance").value:
+            if self.get_parameter("planner_type").value == "lawnmower":
+                self.get_logger().info("Lawnmower coverage finished.")
                 self.do_stop()
             else:
-                self._end_segment_and_replan('Path end reached')
+                self._end_segment_and_replan("Path end reached")
             return
 
-        if self.get_parameter('planner_type').value == 'lawnmower':
+        if self.get_parameter("planner_type").value == "lawnmower":
             # Lawnmower has one fixed coverage path, nothing to replan.
             return
 
         # Fallback trigger, replan anyway if the robot
         # has been stuck on this path for too long (e.g. blocked by an
         # obstacle) instead of waiting forever for it to reach the end.
-        elapsed = self.get_clock().now(
-        ).nanoseconds * 1e-9 - self._last_replan_time
-        if elapsed > self.get_parameter('replan_timeout_s').value:
-            timeout = self.get_parameter('replan_timeout_s').value
-            self._end_segment_and_replan(f'Replan timeout ({timeout} s)')
+        elapsed = (
+            self.get_clock().now().nanoseconds * 1e-9 - self._last_replan_time
+        )
+        if elapsed > self.get_parameter("replan_timeout_s").value:
+            timeout = self.get_parameter("replan_timeout_s").value
+            self._end_segment_and_replan(f"Replan timeout ({timeout} s)")
 
     def _end_segment_and_replan(self, reason: str):
-        self.get_logger().info(f'{reason}, replanning.')
+        self.get_logger().info(f"{reason}, replanning.")
         self.state = State.PLANNING
         self.trigger_replan()
 
@@ -824,7 +891,7 @@ class PathPlanner(Node):
         its entirety.
         """
         if not path:
-            self.get_logger().warn('Empty path, retrying.')
+            self.get_logger().warn("Empty path, retrying.")
             self.state = State.PLANNING
             return
 
@@ -838,22 +905,23 @@ class PathPlanner(Node):
         self.state = State.EXECUTING
 
         self.publish_path_marker(path)
-        self.get_logger().info(f'Executing {len(path)} waypoints.')
+        self.get_logger().info(f"Executing {len(path)} waypoints.")
 
     def rig_path_to_ros(self, path: list) -> Path:
         """Converts a list of [x, y] points into a nav_msgs/Path message."""
-        z = self.get_parameter('robot_z').value
+        z = self.get_parameter("robot_z").value
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = 'map'
+        header.frame_id = "map"
 
         points_3d = [Point(x=float(xy[0]), y=float(xy[1]), z=z) for xy in path]
 
         orientations = [Quaternion() for _ in points_3d]
         if len(path) >= 2:
-            last_yaw = math.atan2(path[-1][1] - path[-2][1],
-                                  path[-1][0] - path[-2][0])
+            last_yaw = math.atan2(
+                path[-1][1] - path[-2][1], path[-1][0] - path[-2][0]
+            )
             q = quaternion_from_euler(0.0, 0.0, last_yaw)
             orientations[-1] = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
@@ -871,10 +939,10 @@ class PathPlanner(Node):
     def init_path_marker(self):
         msg = Marker()
         msg.action = Marker.ADD
-        msg.ns = 'path'
+        msg.ns = "path"
         msg.id = 0
         msg.type = Marker.LINE_STRIP
-        msg.header.frame_id = 'map'
+        msg.header.frame_id = "map"
         msg.color.a = 1.0
         msg.color.r = 0.0
         msg.color.g = 1.0
@@ -886,7 +954,7 @@ class PathPlanner(Node):
 
     def publish_path_marker(self, path: list):
         """Publishes the planned path as a line strip in RViz."""
-        z = self.get_parameter('robot_z').value
+        z = self.get_parameter("robot_z").value
         self.path_marker.header.stamp = self.get_clock().now().to_msg()
         self.path_marker.points = [
             Point(x=float(xy[0]), y=float(xy[1]), z=z) for xy in path
@@ -901,11 +969,12 @@ def main():
     executor.add_node(node)
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

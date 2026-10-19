@@ -2,27 +2,31 @@
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 
 
 class VisionPoseBridge(Node):
-
     def __init__(self):
-        super().__init__(node_name='vision_pose_bridge')
+        super().__init__(node_name="vision_pose_bridge")
 
-        sub_qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                             history=QoSHistoryPolicy.KEEP_LAST,
-                             depth=1)
+        sub_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.odometry_sub = self.create_subscription(
             msg_type=Odometry,
-            topic='ground_truth/odometry',
+            topic="ground_truth/odometry",
             callback=self.on_odometry,
-            qos_profile=sub_qos)
+            qos_profile=sub_qos,
+        )
         self.vision_pose_pub = self.create_publisher(
             msg_type=PoseWithCovarianceStamped,
-            topic='vision_pose_cov_bridged',
-            qos_profile=1)
+            topic="vision_pose_cov_bridged",
+            qos_profile=1,
+        )
 
     def on_odometry(self, msg: Odometry):
         pose = PoseWithCovarianceStamped()
@@ -36,9 +40,12 @@ def main():
     node = VisionPoseBridge()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

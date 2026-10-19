@@ -4,18 +4,20 @@ import math
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from hippo_control_msgs.msg import ActuatorSetpoint, YawTarget
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from tf_transformations import euler_from_quaternion
 
 
 class YawController(Node):
-
     def __init__(self):
-        super().__init__(node_name='yaw_controller')
-        qos = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                         history=QoSHistoryPolicy.KEEP_LAST,
-                         depth=1)
+        super().__init__(node_name="yaw_controller")
+        qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
 
         # default value for the yaw setpoint
         self.setpoint = math.pi / 2.0
@@ -23,27 +25,30 @@ class YawController(Node):
 
         self.vision_pose_sub = self.create_subscription(
             msg_type=PoseWithCovarianceStamped,
-            topic='vision_pose_cov',
+            topic="vision_pose_cov",
             callback=self.on_vision_pose,
-            qos_profile=qos)
-        self.setpoint_sub = self.create_subscription(YawTarget,
-                                                     topic='~/setpoint',
-                                                     callback=self.on_setpoint,
-                                                     qos_profile=qos)
+            qos_profile=qos,
+        )
+        self.setpoint_sub = self.create_subscription(
+            YawTarget,
+            topic="~/setpoint",
+            callback=self.on_setpoint,
+            qos_profile=qos,
+        )
         self.timeout_timer = self.create_timer(0.5, self.on_setpoint_timeout)
 
-        self.torque_pub = self.create_publisher(msg_type=ActuatorSetpoint,
-                                                topic='torque_setpoint',
-                                                qos_profile=1)
+        self.torque_pub = self.create_publisher(
+            msg_type=ActuatorSetpoint, topic="torque_setpoint", qos_profile=1
+        )
 
         self._declare_parameters()
 
     def _declare_parameters(self):
-        self.declare_parameter('p_gain', 0.2)
+        self.declare_parameter("p_gain", 0.2)
 
     def on_setpoint_timeout(self):
         self.timeout_timer.cancel()
-        self.get_logger().warn('Setpoint timed out. Waiting for new setpoints')
+        self.get_logger().warn("Setpoint timed out. Waiting for new setpoints")
         self.setpoint_timed_out = True
 
     def wrap_pi(self, value: float):
@@ -57,7 +62,7 @@ class YawController(Node):
     def on_setpoint(self, msg: YawTarget):
         self.timeout_timer.reset()
         if self.setpoint_timed_out:
-            self.get_logger().info('Setpoint received! Getting back to work.')
+            self.get_logger().info("Setpoint received! Getting back to work.")
         self.setpoint_timed_out = False
         self.setpoint = self.wrap_pi(msg.yaw_target)
 
@@ -68,7 +73,7 @@ class YawController(Node):
         q = msg.pose.pose.orientation
         # convert the quaternion to euler angles
         (roll, pitch, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        #yaw = self.wrap_pi(yaw)
+        # yaw = self.wrap_pi(yaw)
 
         control_output = self.compute_control_output(yaw)
         timestamp = rclpy.time.Time.from_msg(msg.header.stamp)
@@ -78,11 +83,12 @@ class YawController(Node):
         # very important: normalize the angle error!
         error = self.wrap_pi(self.setpoint - yaw)
 
-        p_gain = self.get_parameter('p_gain').value
+        p_gain = self.get_parameter("p_gain").value
         return p_gain * error
 
-    def publish_control_output(self, control_output: float,
-                               timestamp: rclpy.time.Time):
+    def publish_control_output(
+        self, control_output: float, timestamp: rclpy.time.Time
+    ):
         msg = ActuatorSetpoint()
         msg.header.stamp = timestamp.to_msg()
         msg.ignore_x = True
@@ -98,9 +104,12 @@ def main():
     node = YawController()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
