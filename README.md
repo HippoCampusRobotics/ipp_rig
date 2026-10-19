@@ -25,11 +25,11 @@ Clone these packages into the same workspace as `ipp`.
 
 ```bash
 cd ~/ros2/src
-git clone https://github.com/Latfoo/ipp_interfaces.git
+git clone https://github.com/HippoCampusRobotics/ipp_interfaces.git
 git clone https://github.com/HippoCampusRobotics/scalar_field_interfaces.git
 git clone https://github.com/HippoCampusRobotics/scalar_field_sim.git
 git clone https://github.com/HippoCampusRobotics/scalar_field_belief.git
-git clone https://github.com/Latfoo/ipp_rviz_visuals.git
+git clone https://github.com/HippoCampusRobotics/ipp_rviz_visuals.git
 git clone https://github.com/teamspatzenhirn/rviz_2d_overlay_plugins.git
 ```
 
