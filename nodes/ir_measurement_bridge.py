@@ -143,7 +143,9 @@ class IrMeasurementBridge(Node):
         )
 
     def _on_channel(self, index: int, msg: Float32):
-        self._channel_buffers[index].append((self.get_clock().now(), msg.data))
+        buffer = self._channel_buffers[index]
+        buffer.append((self.get_clock().now(), msg.data))
+        self._drop_stale(buffer)
 
     def _on_pose(self, msg: PoseWithCovarianceStamped):
         self._current_pose = msg.pose.pose
