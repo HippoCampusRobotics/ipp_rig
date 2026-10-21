@@ -5,10 +5,11 @@
   <version>0.0.0</version>
   <description>Informative path planning package</description>
 
-  <maintainer email="b.lato@web.de">Bennett Latosinszky</maintainer>
+  <maintainer email="nathalie.bauschmann@tuhh.de">Nathalie Bauschmann</maintainer>
 
   <license>GPLv2</license>
 
+  <author email="nathalie.bauschmann@tuhh.de">Nathalie Bauschmann</author>
   <author email="b.lato@web.de">Bennett Latosinszky</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
