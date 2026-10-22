@@ -6,7 +6,7 @@ from launch.actions import (
     IncludeLaunchDescription,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import IfElseSubstitution, LaunchConfiguration
 from launch_ros.actions import Node, PushROSNamespace
 
 from launch import LaunchDescription
@@ -148,19 +148,35 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "scenario_path",
             default_value=str(
-                scalar_field_sim_path / "scenarios/clustered_field_2.toml"
+                scalar_field_sim_path
+                / "scenarios/project-specific/ba-latosinszky"
+                / "clustered_field_2.toml"
             ),
         )
     )
     launch_description.add_action(
         DeclareLaunchArgument(
+            "wall_aware",
+            default_value="false",
+            choices=["true", "false"],
+        )
+    )
+    launch_description.add_action(
+        DeclareLaunchArgument(
             "belief_params",
-            default_value=str(
-                scalar_field_belief_path / "config/belief_params_default.yaml"
+            default_value=IfElseSubstitution(
+                LaunchConfiguration("wall_aware"),
+                if_value=str(
+                    scalar_field_belief_path
+                    / "config/belief_params_wall_aware.yaml"
+                ),
+                else_value=str(
+                    scalar_field_belief_path
+                    / "config/belief_params_default.yaml"
+                ),
             ),
         )
     )
-
     hippo_sim = get_package_share_path("hippo_sim")
 
     ############################################################################

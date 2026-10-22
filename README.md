@@ -79,10 +79,10 @@ Gazebo runs headless, RViz starts automatically.
 ros2 launch ipp simulation.launch.py
 ```
 
-The simulated field is a `.toml` file from `scalar_field_sim/scenarios/`, set with the `scenario_path` launch argument (default `clustered_field_2.toml`). It needs the full path. Not to be confused with `scenario`, which only sets the obstacles. (combining them is future work)
+The simulated field is a `.toml` file from `scalar_field_sim/scenarios/`, set with the `scenario_path` launch argument (default `project-specific/ba-latosinszky/clustered_field_2.toml`). It needs the full path. Not to be confused with `scenario`, which only sets the obstacles. (combining them is future work)
 
 ```bash
-ros2 launch ipp simulation.launch.py scenario_path:=$(ros2 pkg prefix --share scalar_field_sim)/scenarios/shared_fields/field_01.toml
+ros2 launch ipp simulation.launch.py scenario_path:=$(ros2 pkg prefix --share scalar_field_sim)/scenarios/project-specific/ba-latosinszky/shared_fields/field_01.toml
 ```
 
 ### Real hardware
@@ -117,6 +117,7 @@ Both launch files take the same arguments, only some defaults differ.
 | `vehicle_name` | `bluerov00` | `bluerov01` | Namespace of all topics and services |
 | `planner` | `rig` | `rig` | `rig` (RIG-tree), `lawnmower` (coverage baseline), or `random` (RIG-tree without variance information) |
 | `scenario` | empty | empty | Obstacle layout from `config/`, e.g. `scenario_1`. Empty means a free tank |
+| `wall_aware` | `false` | - | Use the wall-aware GP belief (`scalar_field_belief` `config/belief_params_wall_aware.yaml`) instead of `belief_params_default.yaml` |
 | `start_gui` | `false` | - | Show the Gazebo window |
 | `rng_seed` | `-1` | `-1` | Seed for RIG-tree sampling, `-1` means unseeded |
 | `planning_horizon` | `6` | `6` | Maximum number of tree nodes per planning cycle |
