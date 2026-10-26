@@ -117,7 +117,8 @@ Both launch files take the same arguments, only some defaults differ.
 | `vehicle_name` | `bluerov00` | `bluerov01` | Namespace of all topics and services |
 | `planner` | `rig` | `rig` | `rig` (RIG-tree), `lawnmower` (coverage baseline), or `random` (RIG-tree without variance information) |
 | `scenario` | empty | empty | Obstacle layout from `config/`, e.g. `scenario_1`. Empty means a free tank |
-| `wall_aware` | `false` | - | Use the wall-aware GP belief (`scalar_field_belief` `config/belief_params_wall_aware.yaml`) instead of `belief_params_default.yaml` |
+| `scenario_path` | `clustered_field_2` (no walls) | - | `scalar_field_sim` scenario of the simulated field, absolute or relative to the installed `scalar_field_sim` share directory |
+| `wall_aware` | `false` | - | Use the wall-aware GP belief (`scalar_field_belief` `config/belief_params_wall_aware.yaml`) instead of `belief_params_default.yaml`; the belief then takes its walls from `scenario_path`, so the scenario must contain walls |
 | `start_gui` | `false` | - | Show the Gazebo window |
 | `rng_seed` | `-1` | `-1` | Seed for RIG-tree sampling, `-1` means unseeded |
 | `planning_horizon` | `6` | `6` | Maximum number of tree nodes per planning cycle |
@@ -134,6 +135,15 @@ For instance, the lawnmower.
 
 ```bash
 ros2 launch ipp simulation.launch.py planner:=lawnmower
+```
+
+With `wall_aware:=true`, the belief uses the walls of `scenario_path`. The
+default scenario has no walls, so the belief node does not start with it; give a
+scenario with walls instead, e.g.
+
+```bash
+ros2 launch ipp simulation.launch.py wall_aware:=true \
+  scenario_path:=scenarios/tests/fields/01_single_wall.toml
 ```
 
 ## Region of interest (optional)

@@ -295,6 +295,7 @@ def generate_launch_description():
                     name="scalar_field_belief",
                     parameters=[
                         LaunchConfiguration("belief_params"),
+                        {"scenario_path": LaunchConfiguration("scenario_path")},
                         {"use_sim_time": True},
                     ],
                     output="screen",
